@@ -128,38 +128,66 @@ def get_story_and_prompt():
 
 def generate_image(prompt: str):
     """
-    Generates an image from the given prompt using the OpenAI Images API.
-    Returns a tuple: (image_bytes, extension)
+    Generate an image with OpenAI Images API.
+    Returns (image_bytes, ext) where ext is 'png' (preferred) or 'svg' (fallback).
     """
     url = "https://api.openai.com/v1/images/generations"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-
-    # Request PNG instead of SVG
     payload = {
-        "model": IMG_MODEL,
+        "model": IMG_MODEL,        # e.g. "gpt-image-1"
         "prompt": prompt,
-        "size": IMG_SIZE,
-        "response_format": "b64_json"  # 👈 This ensures PNG binary output
+        "size": IMG_SIZE,          # e.g. "1024x1024"
+        "response_format": "b64_json",  # 🔑 force PNG bytes instead of an SVG card or URL
     }
 
-    r = requests.post(url, headers=headers, json=payload, timeout=180)
-    r.raise_for_status()
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=180)
+        if r.status_code in (401, 403):
+            raise PermissionError(f"Images forbidden: {r.text[:400]}")
+        r.raise_for_status()
 
-    # Parse the JSON response
-    data = r.json()
-    if "data" not in data or not data["data"]:
-        raise RuntimeError(f"Unexpected image API response: {data}")
+        data = r.json()
+        item = (data.get("data") or [{}])[0]
+        b64 = item.get("b64_json")
 
-    b64 = data["data"][0].get("b64_json")
-    if not b64:
-        raise RuntimeError(f"Missing b64_json field in image API response: {data}")
+        # If the API ever returns an SVG or URL instead, try to surface it gracefully
+        if not b64:
+            svg = item.get("svg")
+            if svg:
+                return svg.encode("utf-8"), "svg"
+            raise RuntimeError(f"No b64_json in image response: {str(data)[:400]}")
 
-    # Decode Base64 to bytes and return along with file extension
-    img_bytes = base64.b64decode(b64)
-    return img_bytes, "png"
+        return base64.b64decode(b64), "png"
+
+    except Exception as e:
+        # Fallback: simple SVG poster so the pipeline still publishes
+        safe = (prompt or "illustration").strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        snippet = (safe[:160] + "…") if len(safe) > 160 else safe
+        svg = f"""<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e8eef9"/>
+      <stop offset="100%" stop-color="#d4ece1"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <g transform="translate(60,140)">
+    <text x="0" y="0" font-family="Helvetica, Arial, sans-serif" font-size="48" font-weight="700" fill="#222">
+      Auto Illustration
+    </text>
+    <foreignObject x="0" y="40" width="904" height="820">
+      <div xmlns="http://www.w3.org/1999/xhtml"
+           style="font-family: Helvetica, Arial, sans-serif; font-size: 28px; line-height: 1.35; color:#333;">
+        {snippet}
+      </div>
+    </foreignObject>
+  </g>
+</svg>"""
+        return svg.encode("utf-8"), "svg"
 
 def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
     xml = FEED.read_text(encoding="utf-8")
