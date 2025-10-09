@@ -130,44 +130,38 @@ def generate_image(prompt: str):
     """
     Generate an image with OpenAI Images API.
     Returns (image_bytes, ext) where ext is 'png'/'jpg'/'webp'/'svg'.
-    Falls back to SVG ONLY for 401/403.
+    Prefer PNG; retry/parse URL or SVG if b64_json is not supported.
     """
+    import mimetypes
+
     url = "https://api.openai.com/v1/images/generations"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json",
-        "Accept": "application/json",
     }
-    payload = {
-        "model": IMG_MODEL,          # e.g., "gpt-image-1"
+    base_payload = {
+        "model": IMG_MODEL,   # e.g., "gpt-image-1"
         "prompt": prompt,
-        "size": IMG_SIZE,            # e.g., "1024x1024"
-        "response_format": "b64_json"  # ask for base64 PNG explicitly
+        "size": IMG_SIZE,     # e.g., "1024x1024"
     }
 
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=180)
-        status = r.status_code
-        if status in (401, 403):
-            raise PermissionError(f"Images forbidden {status}: {r.text[:600]}")
-        r.raise_for_status()
-
-        data = r.json()
-        items = data.get("data") or []
+    def parse_items(data):
+        items = (data or {}).get("data") or []
         if not items:
-            raise RuntimeError(f"Unexpected image API response: {str(data)[:600]}")
-
+            raise RuntimeError(f"Unexpected image API response (no data): {str(data)[:600]}")
         item = items[0]
 
-        # 1) Preferred: base64 png
-        if "b64_json" in item and item["b64_json"]:
-            return base64.b64decode(item["b64_json"]), "png"
+        # 1) b64 -> PNG
+        b64 = item.get("b64_json")
+        if b64:
+            return base64.b64decode(b64), "png"
 
-        # 2) Sometimes the API returns a URL (honor it)
-        if "url" in item and item["url"]:
-            img_resp = requests.get(item["url"], timeout=180)
-            img_resp.raise_for_status()
-            ct = (img_resp.headers.get("Content-Type") or "").lower()
+        # 2) URL -> download and infer extension
+        url_field = item.get("url")
+        if url_field:
+            resp = requests.get(url_field, timeout=180)
+            resp.raise_for_status()
+            ct = (resp.headers.get("Content-Type") or "").lower()
             if "png" in ct:
                 ext = "png"
             elif "jpeg" in ct or "jpg" in ct:
@@ -177,27 +171,46 @@ def generate_image(prompt: str):
             elif "svg" in ct:
                 ext = "svg"
             else:
-                ext = "png"  # default
-            return img_resp.content, ext
+                # Try to guess from URL as a fallback
+                guess = (mimetypes.guess_extension(ct) or "").lstrip(".")
+                ext = guess if guess else "png"
+            return resp.content, ext
 
-        # 3) Some accounts receive 'svg'
+        # 3) Direct SVG string
         if "svg" in item and item["svg"]:
             return item["svg"].encode("utf-8"), "svg"
 
-        # 4) Nothing usable -> log and fail so we can see the true payload
         raise RuntimeError(f"No b64_json/url/svg in image response: {str(data)[:600]}")
 
+    try:
+        # Attempt 1: ask for PNG bytes explicitly
+        payload = dict(base_payload, response_format="b64_json")
+        r = requests.post(url, headers=headers, json=payload, timeout=180)
+        if r.status_code in (401, 403):
+            raise PermissionError(f"Images forbidden {r.status_code}: {r.text[:600]}")
+        if r.status_code == 400:
+            # Some orgs/models reject response_format -> warn & retry without it
+            try:
+                print("::warning::images b64_json attempt 400:", r.json())
+            except Exception:
+                print("::warning::images b64_json attempt 400:", r.text[:600])
+            r2 = requests.post(url, headers=headers, json=base_payload, timeout=180)
+            if r2.status_code in (401, 403):
+                raise PermissionError(f"Images forbidden {r2.status_code}: {r2.text[:600]}")
+            r2.raise_for_status()
+            return parse_items(r2.json())
+
+        r.raise_for_status()
+        return parse_items(r.json())
+
     except PermissionError:
-        # Only here do we use the manual SVG fallback (keeps the pipeline publishing)
+        # Only for auth/permission blocks do we use the local SVG so the pipeline still publishes
         safe = (prompt or "illustration").strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         snippet = (safe[:160] + "…") if len(safe) > 160 else safe
         svg = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#e8eef9"/><stop offset="100%" stop-color="#d4ece1"/>
-    </linearGradient>
-  </defs>
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#e8eef9"/><stop offset="100%" stop-color="#d4ece1"/></linearGradient></defs>
   <rect width="100%" height="100%" fill="url(#g)"/>
   <g transform="translate(60,140)">
     <text x="0" y="0" font-family="Helvetica, Arial, sans-serif" font-size="48" font-weight="700" fill="#222">Auto Illustration</text>
@@ -207,6 +220,13 @@ def generate_image(prompt: str):
   </g>
 </svg>"""
         return svg.encode("utf-8"), "svg"
+
+    except Exception as e:
+        # Surface payload snippet for fast diagnosis next time
+        try:
+            print("::error::Images API unexpected error:", str(e)[:300])
+        finally:
+            raise
 
 def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
     xml = FEED.read_text(encoding="utf-8")
