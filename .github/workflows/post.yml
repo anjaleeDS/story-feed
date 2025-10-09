@@ -27,38 +27,59 @@ jobs:
           pip install -r requirements.txt
 
       - name: Diagnose Images API access
-        run: |
-          set -e
-          echo "Testing model listing:"
-          curl -sS https://api.openai.com/v1/models \
-            -H "Authorization: Bearer $OPENAI_API_KEY" | python - <<'PY'
-          import sys, json
-          j=json.load(sys.stdin)
-          ids=[m.get("id","") for m in j.get("data",[])]
-          print("image-capable models:", [i for i in ids if "image" in i.lower() or "dall" in i.lower()])
-          PY
-
-          echo "Testing image generation (tiny prompt):"
-          http_code=$(curl -sS -o /tmp/img_resp.json -w "%{http_code}" https://api.openai.com/v1/images/generations \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"model":"gpt-image-1","prompt":"simple geometric pattern","size":"256x256"}')
-          echo "HTTP: $http_code"
-          head -c 800 /tmp/img_resp.json; echo
-
-      - name: Generate story, image, and update RSS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # MODEL: gpt-5
-          # IMG_MODEL: gpt-image-1
-          MODEL: o4-mini              # safer default than gpt-5 for now
-          IMG_MODEL: gpt-image-1
-          POST_TOPIC: "ocean run, clarity, morning fog"
-          POST_MIN_WORDS: "450"
-          POST_MAX_WORDS: "650"
-          IMG_SIZE: "1024x1024"
-          PUBLIC_BASE_URL: "https://anjaleeDS.github.io/story-feed"
-        run: python scripts/make_post.py
+        run: |
+          set -euo pipefail
+      
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::error:: OPENAI_API_KEY is not set or empty."
+            exit 1
+          fi
+      
+          echo "=== 1) List models ==="
+          curl -sS -D /tmp/models.h \
+            -w '\nHTTP:%{http_code}\n' \
+            https://api.openai.com/v1/models \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -o /tmp/models.json || true
+          echo "--- headers ---"
+          sed -n '1,40p' /tmp/models.h
+          echo "--- body (first 800 chars) ---"
+          head -c 800 /tmp/models.json; echo
+          echo "--- status ---"
+          tail -n1 /tmp/models.json || true  # prints HTTP:<code> marker if present
+      
+          echo
+          echo "=== 2) Test image generation ==="
+          curl -sS -D /tmp/images.h \
+            -w '\nHTTP:%{http_code}\n' \
+            https://api.openai.com/v1/images/generations \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"gpt-image-1","prompt":"simple geometric pattern","size":"256x256"}' \
+            -o /tmp/images.json || true
+          echo "--- headers ---"
+          sed -n '1,40p' /tmp/images.h
+          echo "--- body (first 800 chars) ---"
+          head -c 800 /tmp/images.json; echo
+          echo "--- status ---"
+          tail -n1 /tmp/images.json || true
+  
+        - name: Generate story, image, and update RSS
+          env:
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            # MODEL: gpt-5
+            # IMG_MODEL: gpt-image-1
+            MODEL: o4-mini              # safer default than gpt-5 for now
+            IMG_MODEL: gpt-image-1
+            POST_TOPIC: "ocean run, clarity, morning fog"
+            POST_MIN_WORDS: "450"
+            POST_MAX_WORDS: "650"
+            IMG_SIZE: "1024x1024"
+            PUBLIC_BASE_URL: "https://anjaleeDS.github.io/story-feed"
+          run: python scripts/make_post.py
 
       - name: Commit & push if changed
         run: |
