@@ -211,45 +211,48 @@ def main():
     ensure_feed()
     title, story_html, image_prompt = get_story_and_prompt()
 
+    # --- Generate filenames and slugs ---
     timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
     slug = f"{slugify(title) or 'story'}-{timestamp}"
-    img_name = f"{timestamp}.png"
 
-    # Save image
+    # --- Generate and save image ---
     img_bytes, img_ext = generate_image(image_prompt)
     img_name = f"{timestamp}.{img_ext}"
     (IMGS / img_name).write_bytes(img_bytes)
 
-    # Write post HTML
-    # rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"
-    # post_html = f"<h2>{title}</h2>\n{story_html}\n<p><img src='{rel_img_url}' alt='illustration'/></p>\n"
-    # post_path = POSTS / f"{slug}.html"
-    # post_path.write_text(post_html, encoding="utf-8")
-    # Write post HTML
-    rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"
-    post_html = f"<h2>{title}</h2>\n{story_html}\n<p><img src='{rel_img_url}' alt='illustration'/></p>\n"
+    # --- Prepare image paths ---
+    # For HTML: relative path (GitHub Pages serves posts under /story-feed/posts/)
+    html_img_src = f"../images/{img_name}"
+
+    # For RSS: absolute URL
+    img_abs_url = f"{PUBLIC_BASE_URL}/images/{img_name}"
+
+    # --- Build post HTML ---
+    post_html = (
+        f"<h2>{title}</h2>\n"
+        f"{story_html}\n"
+        f"<p><img src='{html_img_src}' alt='illustration'/></p>\n"
+    )
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(post_html, encoding="utf-8")
-    
 
-    # Update RSS
-    # post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
-    # img_abs_url = f"{PUBLIC_BASE_URL}{rel_img_url}"
-    # append_rss_item(title, post_url, story_html, img_abs_url)
-        # Update RSS
+    # --- Build URLs for RSS and logging ---
     post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
-    img_abs_url = f"{PUBLIC_BASE_URL}{rel_img_url}"
+
+    # --- Append to RSS feed ---
     append_rss_item(title, post_url, story_html, img_abs_url)
 
+    # --- Print JSON log (useful for debugging in Actions) ---
     print({"slug": slug, "post_url": post_url})
 
-    # GitHub Actions summary + notice
+    # --- GitHub Actions summary + notice ---
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write("## ✅ New post published\n")
+            f.write(f"- **Title:** {title}\n")
             f.write(f"- **URL:** {post_url}\n\n")
-    print(f"::notice title=New post::{post_url}")
 
+    print(f"::notice title=New post::{post_url}")
 if __name__ == "__main__":
     main()
