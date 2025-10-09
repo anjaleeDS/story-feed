@@ -1,28 +1,39 @@
 name: Generate story, image, and update RSS
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # lets you run it manually
   schedule:
-    - cron: "0 15 * * *" # runs daily at 3PM UTC
+    - cron: "0 15 * * *"    # runs daily at 3 PM UTC
+
+# 👇 this gives your GitHub Actions bot permission to write to your repo
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      # 🧩 Step 1: Pull your repo files so we can work on them
       - name: Check out repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
+      # 🐍 Step 2: Install Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
+      # 📦 Step 3: Install your project’s requirements
       - name: Install deps
         run: |
           pip install -r requirements.txt
 
-      # 🔍 Diagnostic Step — check OpenAI image API permissions
+      # 🧠 Step 4: Check that your OpenAI key works and can make images
       - name: Diagnose Images API access
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -46,7 +57,7 @@ jobs:
           echo "--- body (first 800 chars) ---"
           head -c 800 /tmp/models.json; echo
           echo "--- status ---"
-          tail -n1 /tmp/models.json || true  # prints HTTP:<code> marker if present
+          tail -n1 /tmp/models.json || true
 
           echo
           echo "=== 2) Test image generation ==="
@@ -64,16 +75,17 @@ jobs:
           echo "--- status ---"
           tail -n1 /tmp/images.json || true
 
-      # 🧠 Your actual generation job
+      # ✍️ Step 5: Run your Python script that makes the story + image
       - name: Generate story, image, and update RSS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/make_post.py
 
+      # 💾 Step 6: Save the new files and push them to GitHub
       - name: Commit & push if changed
         run: |
           git config user.name github-actions
           git config user.email github-actions@github.com
           git add docs/posts docs/images docs/feed.xml || true
           git commit -m "auto: new story $(date -u +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
-          git push
+          git push origin HEAD:${{ github.ref_name }}
