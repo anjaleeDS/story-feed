@@ -29,7 +29,9 @@ jobs:
       - name: Generate story, image, and update RSS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MODEL: gpt-5
+          # MODEL: gpt-5
+          # IMG_MODEL: gpt-image-1
+          MODEL: o4-mini              # safer default than gpt-5 for now
           IMG_MODEL: gpt-image-1
           POST_TOPIC: "ocean run, clarity, morning fog"
           POST_MIN_WORDS: "450"
