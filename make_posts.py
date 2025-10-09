@@ -152,3 +152,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# If running in GitHub Actions, write a step summary
+summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary_path:
+    with open(summary_path, "a", encoding="utf-8") as f:
+        f.write(f"## ✅ New post published\n\n")
+        f.write(f"- **URL:** {post_url}\n")
