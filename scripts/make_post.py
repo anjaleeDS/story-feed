@@ -235,14 +235,15 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     if chan is None:
         raise RuntimeError("Invalid RSS feed: missing <channel>")
 
+    timestamp_str = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
     lbd = chan.find("lastBuildDate") or ET.SubElement(chan, "lastBuildDate")
-    lbd.text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
+    lbd.text = timestamp_str
 
     item = ET.SubElement(chan, "item")
     ET.SubElement(item, "title").text = title
     ET.SubElement(item, "link").text = post_url
     ET.SubElement(item, "guid").text = post_url
-    ET.SubElement(item, "pubDate").text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
+    ET.SubElement(item, "pubDate").text = timestamp_str
     desc = ET.SubElement(item, "description")
     desc.text = f"<![CDATA[{story_html}<p><img src='{img_abs_url}' alt='illustration'/></p>]]>"
     FEED.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
