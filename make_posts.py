@@ -33,8 +33,9 @@ def utcnow():
     return datetime.datetime.utcnow()
 
 def slugify(s: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9\\- ]", "", s).strip().lower()
-    s = re.sub(r"\\s+", "-", s)
+    # Fix: use raw strings so \s works and minus is not double-escaped
+    s = re.sub(r"[^a-zA-Z0-9\- ]", "", s).strip().lower()
+    s = re.sub(r"\s+", "-", s)
     return s[:60] or "story"
 
 def ensure_feed():
