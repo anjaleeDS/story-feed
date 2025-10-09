@@ -73,8 +73,8 @@ def get_story_and_prompt():
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            # IMPORTANT: new key is text.format
-            "text": {"format": "json_object"}
+            # IMPORTANT:
+            "text": {"format": {"type": "json_object"}}
         },
         timeout=120
     )
