@@ -26,6 +26,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Diagnose Images API access
+        run: |
+          set -e
+          echo "Testing model listing:"
+          curl -sS https://api.openai.com/v1/models \
+            -H "Authorization: Bearer $OPENAI_API_KEY" | python - <<'PY'
+          import sys, json
+          j=json.load(sys.stdin)
+          ids=[m.get("id","") for m in j.get("data",[])]
+          print("image-capable models:", [i for i in ids if "image" in i.lower() or "dall" in i.lower()])
+          PY
+
+          echo "Testing image generation (tiny prompt):"
+          http_code=$(curl -sS -o /tmp/img_resp.json -w "%{http_code}" https://api.openai.com/v1/images/generations \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"gpt-image-1","prompt":"simple geometric pattern","size":"256x256"}')
+          echo "HTTP: $http_code"
+          head -c 800 /tmp/img_resp.json; echo
+
       - name: Generate story, image, and update RSS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
