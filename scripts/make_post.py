@@ -129,61 +129,80 @@ def get_story_and_prompt():
 def generate_image(prompt: str):
     """
     Generate an image with OpenAI Images API.
-    Returns (image_bytes, ext) where ext is 'png' (preferred) or 'svg' (fallback).
+    Returns (image_bytes, ext) where ext is 'png'/'jpg'/'webp'/'svg'.
+    Falls back to SVG ONLY for 401/403.
     """
     url = "https://api.openai.com/v1/images/generations"
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json",
+        "Accept": "application/json",
     }
     payload = {
-        "model": IMG_MODEL,        # e.g. "gpt-image-1"
+        "model": IMG_MODEL,          # e.g., "gpt-image-1"
         "prompt": prompt,
-        "size": IMG_SIZE,          # e.g. "1024x1024"
-        "response_format": "b64_json",  # 🔑 force PNG bytes instead of an SVG card or URL
+        "size": IMG_SIZE,            # e.g., "1024x1024"
+        "response_format": "b64_json"  # ask for base64 PNG explicitly
     }
 
     try:
         r = requests.post(url, headers=headers, json=payload, timeout=180)
-        if r.status_code in (401, 403):
-            raise PermissionError(f"Images forbidden: {r.text[:400]}")
+        status = r.status_code
+        if status in (401, 403):
+            raise PermissionError(f"Images forbidden {status}: {r.text[:600]}")
         r.raise_for_status()
 
         data = r.json()
-        item = (data.get("data") or [{}])[0]
-        b64 = item.get("b64_json")
+        items = data.get("data") or []
+        if not items:
+            raise RuntimeError(f"Unexpected image API response: {str(data)[:600]}")
 
-        # If the API ever returns an SVG or URL instead, try to surface it gracefully
-        if not b64:
-            svg = item.get("svg")
-            if svg:
-                return svg.encode("utf-8"), "svg"
-            raise RuntimeError(f"No b64_json in image response: {str(data)[:400]}")
+        item = items[0]
 
-        return base64.b64decode(b64), "png"
+        # 1) Preferred: base64 png
+        if "b64_json" in item and item["b64_json"]:
+            return base64.b64decode(item["b64_json"]), "png"
 
-    except Exception as e:
-        # Fallback: simple SVG poster so the pipeline still publishes
+        # 2) Sometimes the API returns a URL (honor it)
+        if "url" in item and item["url"]:
+            img_resp = requests.get(item["url"], timeout=180)
+            img_resp.raise_for_status()
+            ct = (img_resp.headers.get("Content-Type") or "").lower()
+            if "png" in ct:
+                ext = "png"
+            elif "jpeg" in ct or "jpg" in ct:
+                ext = "jpg"
+            elif "webp" in ct:
+                ext = "webp"
+            elif "svg" in ct:
+                ext = "svg"
+            else:
+                ext = "png"  # default
+            return img_resp.content, ext
+
+        # 3) Some accounts receive 'svg'
+        if "svg" in item and item["svg"]:
+            return item["svg"].encode("utf-8"), "svg"
+
+        # 4) Nothing usable -> log and fail so we can see the true payload
+        raise RuntimeError(f"No b64_json/url/svg in image response: {str(data)[:600]}")
+
+    except PermissionError:
+        # Only here do we use the manual SVG fallback (keeps the pipeline publishing)
         safe = (prompt or "illustration").strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         snippet = (safe[:160] + "…") if len(safe) > 160 else safe
         svg = f"""<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#e8eef9"/>
-      <stop offset="100%" stop-color="#d4ece1"/>
+      <stop offset="0%" stop-color="#e8eef9"/><stop offset="100%" stop-color="#d4ece1"/>
     </linearGradient>
   </defs>
   <rect width="100%" height="100%" fill="url(#g)"/>
   <g transform="translate(60,140)">
-    <text x="0" y="0" font-family="Helvetica, Arial, sans-serif" font-size="48" font-weight="700" fill="#222">
-      Auto Illustration
-    </text>
+    <text x="0" y="0" font-family="Helvetica, Arial, sans-serif" font-size="48" font-weight="700" fill="#222">Auto Illustration</text>
     <foreignObject x="0" y="40" width="904" height="820">
-      <div xmlns="http://www.w3.org/1999/xhtml"
-           style="font-family: Helvetica, Arial, sans-serif; font-size: 28px; line-height: 1.35; color:#333;">
-        {snippet}
-      </div>
+      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: Helvetica, Arial, sans-serif; font-size: 28px; line-height: 1.35; color:#333;">{snippet}</div>
     </foreignObject>
   </g>
 </svg>"""
