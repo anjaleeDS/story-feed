@@ -73,38 +73,43 @@ def get_story_and_prompt():
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            # IMPORTANT:
-            # "text": {"format": {"type": "json_object"}}
+            #   # ✅ JSON mode for the Responses API
+            "text": {"format": {"type": "json_object"}}
         },
         timeout=120
     )
-    if r.status_code != 200:
-        raise RuntimeError(f"Responses API error {r.status_code}: {r.text[:1000]}")
+    r.raise_for_status()
 
     data = r.json()
 
-    # Try top-level JSON
+ # 1) Try top-level object (some providers return the JSON directly)
     obj = data if isinstance(data, dict) else {}
-    # Some providers nest under "output"
-    if not {"title","story_html","image_prompt"} <= set(obj.keys()) and isinstance(data.get("output"), dict):
-        obj = data["output"]
-    # Or JSON string in content[0].text
-    if not {"title","story_html","image_prompt"} <= set(obj.keys()):
-        content = data.get("content")
-        if isinstance(content, list) and content:
+    if {"title","story_html","image_prompt"} <= set(obj.keys()):
+        return obj["title"] or "Automated Story", obj["story_html"], obj["image_prompt"]
+
+    # 2) Try nested under "output"
+    out = data.get("output")
+    if isinstance(out, dict) and {"title","story_html","image_prompt"} <= set(out.keys()):
+        return out.get("title") or "Automated Story", out["story_html"], out["image_prompt"]
+
+    # 3) Scan content list; text may be a dict OR a JSON string
+    content = data.get("content") or []
+    for c in content:
+        t = c.get("text")
+        # dict already structured
+        if isinstance(t, dict) and {"title","story_html","image_prompt"} <= set(t.keys()):
+            return t.get("title") or "Automated Story", t["story_html"], t["image_prompt"]
+        # string that is JSON
+        if isinstance(t, str):
             try:
-                txt = content[0].get("text", "")
-                obj = json.loads(txt)
+                parsed = json.loads(t)
+                if {"title","story_html","image_prompt"} <= set(parsed.keys()):
+                    return parsed.get("title") or "Automated Story", parsed["story_html"], parsed["image_prompt"]
             except Exception:
                 pass
 
-    title = obj.get("title") or "Automated Story"
-    story_html = obj.get("story_html")
-    image_prompt = obj.get("image_prompt")
-    if not (story_html and image_prompt):
-        raise RuntimeError(f"Missing keys in JSON response: {obj}")
-
-    return title, story_html, image_prompt
+    # 4) If none matched, show what we got for quick debugging
+    raise RuntimeError(f"Missing keys in JSON response: {data}")
 
 def generate_image_bytes(prompt: str) -> bytes:
     r = requests.post(
