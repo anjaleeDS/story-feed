@@ -7,8 +7,6 @@ import datetime
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-
-
 # --- Configuration via environment variables ---
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 MODEL = os.environ.get("MODEL", "o4-mini")
@@ -33,7 +31,6 @@ def utcnow():
     return datetime.datetime.utcnow()
 
 def slugify(s: str) -> str:
-    # Fix: use raw strings so \s works and minus is not double-escaped
     s = re.sub(r"[^a-zA-Z0-9\- ]", "", s).strip().lower()
     s = re.sub(r"\s+", "-", s)
     return s[:60] or "story"
@@ -53,144 +50,73 @@ def ensure_feed():
     )
 
 def get_story_and_prompt():
-    # Ask the model for structured JSON: {story_html, image_prompt, title}
-    prompt = (
+    system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
+    user = (
         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
-        f"Topic: {TOPIC}. The tone should be warm, grounded, and visual. "
-        "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light). "
-        "Return strict JSON with keys: story_html, image_prompt, title."
+        f"Topic: {TOPIC}. Tone: warm, grounded, visual. "
+        "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
+        "and a short natural language title. "
+        "Return a JSON object with keys: title, story_html, image_prompt — nothing else."
     )
-    resp = requests.post(
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    r = requests.post(
         "https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        headers=headers,
         json={
             "model": MODEL,
-            "input": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"}
+            "input": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            # IMPORTANT: new key is text.format
+            "text": {"format": "json_object"}
         },
         timeout=120
     )
-    resp.raise_for_status()
-    data = resp.json()
-    # The Responses API returns the JSON object directly in .json() when response_format is json_object
-    # Try the common fields first; fall back if nested:
-    story_html = data.get("story_html")
-    image_prompt = data.get("image_prompt")
-    title = data.get("title", "Automated Story")
+    if r.status_code != 200:
+        raise RuntimeError(f"Responses API error {r.status_code}: {r.text[:1000]}")
 
-    # Fallbacks if provider nests under 'output' or 'content'
-    if not story_html:
-        out = data.get("output") or {}
-        story_html = out.get("story_html")
-        image_prompt = out.get("image_prompt", image_prompt)
-        title = out.get("title", title)
+    data = r.json()
 
-    if not story_html or not image_prompt:
-        raise RuntimeError("Model did not return story_html / image_prompt")
+    # Try top-level JSON
+    obj = data if isinstance(data, dict) else {}
+    # Some providers nest under "output"
+    if not {"title","story_html","image_prompt"} <= set(obj.keys()) and isinstance(data.get("output"), dict):
+        obj = data["output"]
+    # Or JSON string in content[0].text
+    if not {"title","story_html","image_prompt"} <= set(obj.keys()):
+        content = data.get("content")
+        if isinstance(content, list) and content:
+            try:
+                txt = content[0].get("text", "")
+                obj = json.loads(txt)
+            except Exception:
+                pass
+
+    title = obj.get("title") or "Automated Story"
+    story_html = obj.get("story_html")
+    image_prompt = obj.get("image_prompt")
+    if not (story_html and image_prompt):
+        raise RuntimeError(f"Missing keys in JSON response: {obj}")
 
     return title, story_html, image_prompt
-    
-# def get_story_and_prompt():
-#     # Build the prompt
-#     prompt = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
-#     user = (
-#         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
-#         f"Topic: {TOPIC}. Tone: warm, grounded, visual. "
-#         "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
-#         "and a short natural language title. "
-#         "Return a JSON object with keys: title, story_html, image_prompt — nothing else."
-#     )
 
-#     headers = {
-#         "Authorization": f"Bearer {OPENAI_API_KEY}",
-#         "Content-Type": "application/json",
-#     }
-
-#     # Try Responses API first
-#     try:
-#         resp = requests.post(
-#             "https://api.openai.com/v1/responses",
-#             headers=headers,
-#             json={
-#                 "model": MODEL,
-#                 "input": [
-#                     {"role": "prompt", "content": system},
-#                     {"role": "user", "content": user},
-#                 ],
-#                 "text_format": "json_object"
-#             },
-#             timeout=120
-#         )
-#         resp.raise_for_status()
-#         data = resp.json()
-
-#         obj = data
-#         # Some responses nest under "output"
-#         if isinstance(data, dict) and "output" in data and isinstance(data["output"], dict):
-#             obj = data["output"]
-#         # If still missing keys, try parsing from content[0].text
-#         if not {"title", "story_html", "image_prompt"}.issubset(obj.keys()):
-#             content = data.get("content")
-#             if isinstance(content, list) and content:
-#                 try:
-#                     txt = content[0].get("text", "")
-#                     parsed = json.loads(txt)
-#                     obj = parsed
-#                 except Exception:
-#                     pass
-
-#         title = obj.get("title")
-#         story_html = obj.get("story_html")
-#         image_prompt = obj.get("image_prompt")
-
-#         if not (story_html and image_prompt):
-#             raise ValueError("Missing keys in JSON response")
-
-#         return title or "Automated Story", story_html, image_prompt
-
-#     except Exception as e:
-#         print("::warning::Responses API failed:", getattr(e, "response", None).text if hasattr(e, "response") else str(e))
-
-#     # Fallback: Chat Completions (must not include unsupported parameters)
-#     try:
-#         resp = requests.post(
-#             "https://api.openai.com/v1/chat/completions",
-#             headers=headers,
-#             json={
-#                 "model": MODEL,
-#                 "messages": [
-#                     {"role": "system", "content": system},
-#                     {"role": "user", "content": user + " Return only JSON here."}
-#                 ]
-#             },
-#             timeout=120
-#         )
-#         resp.raise_for_status()
-#         txt = resp.json()["choices"][0]["message"]["content"].strip()
-#         obj = json.loads(txt)
-#         return obj["title"], obj["story_html"], obj["image_prompt"]
-#     except Exception as e:
-#         body = ""
-#         try:
-#             body = resp.text[:1000]
-#         except:
-#             pass
-#         print("::error::Chat body:", body)
-#         raise RuntimeError(f"Failed to get story JSON: {e}")
-
-
-def generate_image_b64(prompt: str) -> bytes:
+def generate_image_bytes(prompt: str) -> bytes:
     r = requests.post(
         "https://api.openai.com/v1/images",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE},
         timeout=180
     )
-    r.raise_for_status()
-    j = r.json()
-    b64 = j["data"][0]["b64_json"]
+    if r.status_code != 200:
+        raise RuntimeError(f"Images API error {r.status_code}: {r.text[:800]}")
+    b64 = r.json()["data"][0]["b64_json"]
     return base64.b64decode(b64)
-
 
 def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
     xml = FEED.read_text(encoding="utf-8")
@@ -199,13 +125,9 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     if chan is None:
         raise RuntimeError("Invalid RSS feed: missing <channel>")
 
-    # Update lastBuildDate
-    lbd = chan.find("lastBuildDate")
-    if lbd is None:
-        lbd = ET.SubElement(chan, "lastBuildDate")
+    lbd = chan.find("lastBuildDate") or ET.SubElement(chan, "lastBuildDate")
     lbd.text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
-    # Create item
     item = ET.SubElement(chan, "item")
     ET.SubElement(item, "title").text = title
     ET.SubElement(item, "link").text = post_url
@@ -213,43 +135,30 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     ET.SubElement(item, "pubDate").text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
     desc = ET.SubElement(item, "description")
     desc.text = f"<![CDATA[{story_html}<p><img src='{img_abs_url}' alt='illustration'/></p>]]>"
-
-    # Write back
-    new_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-    FEED.write_bytes(new_xml)
+    FEED.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 def main():
     ensure_feed()
     title, story_html, image_prompt = get_story_and_prompt()
 
-    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
-    slug = f"{slugify(title) or 'story'}-{timestamp}"
-    img_name = f"{timestamp}.png"
+    ts = utcnow().strftime("%Y%m%d-%H%M%S")
+    slug = f"{slugify(title)}-{ts}"
+    img_name = f"{ts}.png"
 
-    # 1) Save image
-    img_bytes = generate_image_b64(image_prompt)
+    img_bytes = generate_image_bytes(image_prompt)
     (IMGS / img_name).write_bytes(img_bytes)
 
-    # 2) Create post HTML
-    rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"    # /images/<file>
-    post_html = (
-        f"<h2>{title}</h2>\n"
-        f"{story_html}\n"
-        f"<p><img src='{rel_img_url}' alt='illustration'/></p>\n"
-    )
+    rel_img = f"/{IMGS.relative_to(DOCS)}/{img_name}"
+    post_html = f"<h2>{title}</h2>\n{story_html}\n<p><img src='{rel_img}' alt='illustration'/></p>\n"
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(post_html, encoding="utf-8")
 
-    # 3) Append RSS item
-    # GitHub Pages final URL = https://<user>.github.io/<repo>/posts/<slug>.html
-    base = os.environ.get("PUBLIC_BASE_URL", "https://anjaleeDS.github.io/story-feed")
-    post_url = f"{base}/posts/{slug}.html"
-    rel_img_for_feed = f"{base}{rel_img_url}"
-    append_rss_item(title, post_url, story_html, rel_img_for_feed)
+    post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
+    img_abs = f"{PUBLIC_BASE_URL}{rel_img}"
+    append_rss_item(title, post_url, story_html, img_abs)
 
     print({"slug": slug, "post_url": post_url})
 
-    # Write summary and notice for GitHub Actions
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
