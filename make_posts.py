@@ -159,3 +159,6 @@ if summary_path:
     with open(summary_path, "a", encoding="utf-8") as f:
         f.write(f"## ✅ New post published\n\n")
         f.write(f"- **URL:** {post_url}\n")
+
+# GitHub Actions log annotation
+print(f"::notice title=New post::{post_url}")
