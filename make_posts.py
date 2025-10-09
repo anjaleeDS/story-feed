@@ -153,7 +153,7 @@ def generate_image_b64(prompt: str) -> bytes:
     return base64.b64decode(b64)
 
 
-def append_rss_item(title: str, post_url: str, story_html: str, img_rel_url: str):
+def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
     xml = FEED.read_text(encoding="utf-8")
     root = ET.fromstring(xml)
     chan = root.find("channel")
