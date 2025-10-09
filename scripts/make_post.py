@@ -27,13 +27,16 @@ FEED  = DOCS / "feed.xml"
 POSTS.mkdir(parents=True, exist_ok=True)
 IMGS.mkdir(parents=True, exist_ok=True)
 
+
 def utcnow():
     return datetime.datetime.utcnow()
 
+
 def slugify(s: str) -> str:
-    s = re.sub(r"[^a-zA-Z0-9\- ]", "", s).strip().lower()
-    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"[^a-zA-Z0-9\\- ]", "", s).strip().lower()
+    s = re.sub(r"\\s+", "-", s)
     return s[:60] or "story"
+
 
 def ensure_feed():
     if FEED.exists():
@@ -48,6 +51,7 @@ def ensure_feed():
         '</channel></rss>',
         encoding="utf-8"
     )
+
 
 def get_story_and_prompt():
     system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
@@ -70,7 +74,7 @@ def get_story_and_prompt():
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            # JSON mode for Responses API
+            # ✅ Proper JSON mode for Responses API
             "text": {"format": {"type": "json_object"}}
         },
         timeout=120
@@ -78,77 +82,85 @@ def get_story_and_prompt():
     r.raise_for_status()
     data = r.json()
 
-    # Helper to pull fields if dict has them
+    # Helper to extract keys
     def try_extract(obj):
-        if isinstance(obj, dict) and {"title","story_html","image_prompt"} <= set(obj.keys()):
+        if isinstance(obj, dict) and {"title", "story_html", "image_prompt"} <= set(obj.keys()):
             return obj["title"] or "Automated Story", obj["story_html"], obj["image_prompt"]
         return None
 
-    # 1) Top-level object
+    # 1) Try top-level
     got = try_extract(data)
-    if got: return got
+    if got:
+        return got
 
-    # 2) Nested under output (dict)
+    # 2) Try nested dict under "output"
     out = data.get("output")
     got = try_extract(out)
-    if got: return got
+    if got:
+        return got
 
-    # 3) Nested under output (list) -> find message -> content[].text (dict or JSON string)
+    # 3) Try "output" list → find message → content → text (dict or JSON string)
     if isinstance(out, list):
         for item in out:
             if item.get("type") == "message":
                 for seg in item.get("content", []):
                     t = seg.get("text")
-                    # dict already
                     got = try_extract(t)
-                    if got: return got
-                    # string -> JSON
+                    if got:
+                        return got
                     if isinstance(t, str):
                         try:
                             parsed = json.loads(t)
                             got = try_extract(parsed)
-                            if got: return got
+                            if got:
+                                return got
                         except Exception:
                             pass
 
-    # 4) Some providers put content at top level
+    # 4) Try top-level "content"
     content = data.get("content")
     if isinstance(content, list):
         for seg in content:
             t = seg.get("text")
             got = try_extract(t)
-            if got: return got
+            if got:
+                return got
             if isinstance(t, str):
                 try:
                     parsed = json.loads(t)
                     got = try_extract(parsed)
-                    if got: return got
+                    if got:
+                        return got
                 except Exception:
                     pass
 
-    # 5) Nothing matched -> show a compact summary for debugging
-    raise RuntimeError(f"Missing keys in JSON response (keys: {list(data.keys())} ...)")
+    # 5) If nothing matched
+    raise RuntimeError(f"Missing keys in JSON response: {json.dumps(data)[:800]}")
 
-def generate_image_bytes(prompt: str) -> bytes:
+
+def generate_image_b64(prompt: str) -> bytes:
     r = requests.post(
         "https://api.openai.com/v1/images",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE},
         timeout=180
     )
-    if r.status_code != 200:
-        raise RuntimeError(f"Images API error {r.status_code}: {r.text[:800]}")
-    b64 = r.json()["data"][0]["b64_json"]
+    r.raise_for_status()
+    j = r.json()
+    b64 = j["data"][0]["b64_json"]
     return base64.b64decode(b64)
 
-def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
+
+def append_rss_item(title: str, post_url: str, story_html: str, img_rel_url: str):
     xml = FEED.read_text(encoding="utf-8")
     root = ET.fromstring(xml)
     chan = root.find("channel")
     if chan is None:
         raise RuntimeError("Invalid RSS feed: missing <channel>")
 
-    lbd = chan.find("lastBuildDate") or ET.SubElement(chan, "lastBuildDate")
+    lbd = chan.find("lastBuildDate")
+    if lbd is None:
+        lbd = ET.SubElement(chan, "lastBuildDate")
     lbd.text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
     item = ET.SubElement(chan, "item")
@@ -157,28 +169,36 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     ET.SubElement(item, "guid").text = post_url
     ET.SubElement(item, "pubDate").text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
     desc = ET.SubElement(item, "description")
-    desc.text = f"<![CDATA[{story_html}<p><img src='{img_abs_url}' alt='illustration'/></p>]]>"
-    FEED.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    desc.text = f"<![CDATA[{story_html}<p><img src='{img_rel_url}' alt='illustration'/></p>]]>"
+
+    new_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    FEED.write_bytes(new_xml)
+
 
 def main():
     ensure_feed()
     title, story_html, image_prompt = get_story_and_prompt()
 
-    ts = utcnow().strftime("%Y%m%d-%H%M%S")
-    slug = f"{slugify(title)}-{ts}"
-    img_name = f"{ts}.png"
+    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
+    slug = f"{slugify(title) or 'story'}-{timestamp}"
+    img_name = f"{timestamp}.png"
 
-    img_bytes = generate_image_bytes(image_prompt)
+    img_bytes = generate_image_b64(image_prompt)
     (IMGS / img_name).write_bytes(img_bytes)
 
-    rel_img = f"/{IMGS.relative_to(DOCS)}/{img_name}"
-    post_html = f"<h2>{title}</h2>\n{story_html}\n<p><img src='{rel_img}' alt='illustration'/></p>\n"
+    rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"
+    post_html = (
+        f"<h2>{title}</h2>\n"
+        f"{story_html}\n"
+        f"<p><img src='{rel_img_url}' alt='illustration'/></p>\n"
+    )
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(post_html, encoding="utf-8")
 
-    post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
-    img_abs = f"{PUBLIC_BASE_URL}{rel_img}"
-    append_rss_item(title, post_url, story_html, img_abs)
+    base = os.environ.get("PUBLIC_BASE_URL", "https://anjaleeDS.github.io/story-feed")
+    post_url = f"{base}/posts/{slug}.html"
+    rel_img_for_feed = f"{base}{rel_img_url}"
+    append_rss_item(title, post_url, story_html, rel_img_for_feed)
 
     print({"slug": slug, "post_url": post_url})
 
@@ -187,7 +207,9 @@ def main():
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write("## ✅ New post published\n")
             f.write(f"- **URL:** {post_url}\n\n")
+
     print(f"::notice title=New post::{post_url}")
+
 
 if __name__ == "__main__":
     main()
