@@ -53,92 +53,130 @@ def ensure_feed():
     )
 
 def get_story_and_prompt():
-    # Build the prompt
-    system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
-    user = (
+    # Ask the model for structured JSON: {story_html, image_prompt, title}
+    prompt = (
         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
-        f"Topic: {TOPIC}. Tone: warm, grounded, visual. "
-        "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
-        "and a short natural language title. "
-        "Return a JSON object with keys: title, story_html, image_prompt — nothing else."
+        f"Topic: {TOPIC}. The tone should be warm, grounded, and visual. "
+        "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light). "
+        "Return strict JSON with keys: story_html, image_prompt, title."
     )
+    resp = requests.post(
+        "https://api.openai.com/v1/responses",
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+        json={
+            "model": MODEL,
+            "input": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"}
+        },
+        timeout=120
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    # The Responses API returns the JSON object directly in .json() when response_format is json_object
+    # Try the common fields first; fall back if nested:
+    story_html = data.get("story_html")
+    image_prompt = data.get("image_prompt")
+    title = data.get("title", "Automated Story")
 
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    # Fallbacks if provider nests under 'output' or 'content'
+    if not story_html:
+        out = data.get("output") or {}
+        story_html = out.get("story_html")
+        image_prompt = out.get("image_prompt", image_prompt)
+        title = out.get("title", title)
 
-    # Try Responses API first
-    try:
-        resp = requests.post(
-            "https://api.openai.com/v1/responses",
-            headers=headers,
-            json={
-                "model": MODEL,
-                "input": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "text_format": "json_object"
-            },
-            timeout=120
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    if not story_html or not image_prompt:
+        raise RuntimeError("Model did not return story_html / image_prompt")
 
-        obj = data
-        # Some responses nest under "output"
-        if isinstance(data, dict) and "output" in data and isinstance(data["output"], dict):
-            obj = data["output"]
-        # If still missing keys, try parsing from content[0].text
-        if not {"title", "story_html", "image_prompt"}.issubset(obj.keys()):
-            content = data.get("content")
-            if isinstance(content, list) and content:
-                try:
-                    txt = content[0].get("text", "")
-                    parsed = json.loads(txt)
-                    obj = parsed
-                except Exception:
-                    pass
+    return title, story_html, image_prompt
+    
+# def get_story_and_prompt():
+#     # Build the prompt
+#     prompt = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
+#     user = (
+#         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
+#         f"Topic: {TOPIC}. Tone: warm, grounded, visual. "
+#         "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
+#         "and a short natural language title. "
+#         "Return a JSON object with keys: title, story_html, image_prompt — nothing else."
+#     )
 
-        title = obj.get("title")
-        story_html = obj.get("story_html")
-        image_prompt = obj.get("image_prompt")
+#     headers = {
+#         "Authorization": f"Bearer {OPENAI_API_KEY}",
+#         "Content-Type": "application/json",
+#     }
 
-        if not (story_html and image_prompt):
-            raise ValueError("Missing keys in JSON response")
+#     # Try Responses API first
+#     try:
+#         resp = requests.post(
+#             "https://api.openai.com/v1/responses",
+#             headers=headers,
+#             json={
+#                 "model": MODEL,
+#                 "input": [
+#                     {"role": "prompt", "content": system},
+#                     {"role": "user", "content": user},
+#                 ],
+#                 "text_format": "json_object"
+#             },
+#             timeout=120
+#         )
+#         resp.raise_for_status()
+#         data = resp.json()
 
-        return title or "Automated Story", story_html, image_prompt
+#         obj = data
+#         # Some responses nest under "output"
+#         if isinstance(data, dict) and "output" in data and isinstance(data["output"], dict):
+#             obj = data["output"]
+#         # If still missing keys, try parsing from content[0].text
+#         if not {"title", "story_html", "image_prompt"}.issubset(obj.keys()):
+#             content = data.get("content")
+#             if isinstance(content, list) and content:
+#                 try:
+#                     txt = content[0].get("text", "")
+#                     parsed = json.loads(txt)
+#                     obj = parsed
+#                 except Exception:
+#                     pass
 
-    except Exception as e:
-        print("::warning::Responses API failed:", getattr(e, "response", None).text if hasattr(e, "response") else str(e))
+#         title = obj.get("title")
+#         story_html = obj.get("story_html")
+#         image_prompt = obj.get("image_prompt")
 
-    # Fallback: Chat Completions (must not include unsupported parameters)
-    try:
-        resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json={
-                "model": MODEL,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user + " Return only JSON here."}
-                ]
-            },
-            timeout=120
-        )
-        resp.raise_for_status()
-        txt = resp.json()["choices"][0]["message"]["content"].strip()
-        obj = json.loads(txt)
-        return obj["title"], obj["story_html"], obj["image_prompt"]
-    except Exception as e:
-        body = ""
-        try:
-            body = resp.text[:1000]
-        except:
-            pass
-        print("::error::Chat body:", body)
-        raise RuntimeError(f"Failed to get story JSON: {e}")
+#         if not (story_html and image_prompt):
+#             raise ValueError("Missing keys in JSON response")
+
+#         return title or "Automated Story", story_html, image_prompt
+
+#     except Exception as e:
+#         print("::warning::Responses API failed:", getattr(e, "response", None).text if hasattr(e, "response") else str(e))
+
+#     # Fallback: Chat Completions (must not include unsupported parameters)
+#     try:
+#         resp = requests.post(
+#             "https://api.openai.com/v1/chat/completions",
+#             headers=headers,
+#             json={
+#                 "model": MODEL,
+#                 "messages": [
+#                     {"role": "system", "content": system},
+#                     {"role": "user", "content": user + " Return only JSON here."}
+#                 ]
+#             },
+#             timeout=120
+#         )
+#         resp.raise_for_status()
+#         txt = resp.json()["choices"][0]["message"]["content"].strip()
+#         obj = json.loads(txt)
+#         return obj["title"], obj["story_html"], obj["image_prompt"]
+#     except Exception as e:
+#         body = ""
+#         try:
+#             body = resp.text[:1000]
+#         except:
+#             pass
+#         print("::error::Chat body:", body)
+#         raise RuntimeError(f"Failed to get story JSON: {e}")
 
 
 def generate_image_b64(prompt: str) -> bytes:
