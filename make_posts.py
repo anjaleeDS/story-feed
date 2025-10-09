@@ -43,7 +43,7 @@ def get_story_and_prompt():
         json={
             "model": MODEL,
             "input": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"}
+            "text_format": {"type": "json_object"}
         },
         timeout=120
     )
