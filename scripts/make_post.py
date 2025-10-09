@@ -128,7 +128,7 @@ def get_story_and_prompt():
 
 def generate_image_b64(prompt: str) -> bytes:
     r = requests.post(
-        "https://api.openai.com/v1/images",
+        "https://api.openai.com/v1/images/generations",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE},
         timeout=180
