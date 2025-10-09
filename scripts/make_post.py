@@ -10,7 +10,7 @@ TOPIC     = os.environ.get("POST_TOPIC", "an uplifting micro-story about clarity
 MIN_WORDS = int(os.environ.get("POST_MIN_WORDS", "450"))
 MAX_WORDS = int(os.environ.get("POST_MAX_WORDS", "650"))
 IMG_SIZE  = os.environ.get("IMG_SIZE", "1024x1024")
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://<your-user>.github.io/<your-repo>")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://anjaleeDS.github.io/story-feed")
 
 # ---------- Paths ----------
 ROOT  = Path(__file__).resolve().parents[1]
