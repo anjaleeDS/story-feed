@@ -216,19 +216,27 @@ def main():
     img_name = f"{timestamp}.png"
 
     # Save image
-    # img_bytes = generate_image_b64(image_prompt)
-    # (IMGS / img_name).write_bytes(img_bytes)
     img_bytes, img_ext = generate_image(image_prompt)
     img_name = f"{timestamp}.{img_ext}"
     (IMGS / img_name).write_bytes(img_bytes)
 
     # Write post HTML
+    # rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"
+    # post_html = f"<h2>{title}</h2>\n{story_html}\n<p><img src='{rel_img_url}' alt='illustration'/></p>\n"
+    # post_path = POSTS / f"{slug}.html"
+    # post_path.write_text(post_html, encoding="utf-8")
+    # Write post HTML
     rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"
     post_html = f"<h2>{title}</h2>\n{story_html}\n<p><img src='{rel_img_url}' alt='illustration'/></p>\n"
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(post_html, encoding="utf-8")
+    
 
     # Update RSS
+    # post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
+    # img_abs_url = f"{PUBLIC_BASE_URL}{rel_img_url}"
+    # append_rss_item(title, post_url, story_html, img_abs_url)
+        # Update RSS
     post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
     img_abs_url = f"{PUBLIC_BASE_URL}{rel_img_url}"
     append_rss_item(title, post_url, story_html, img_abs_url)
