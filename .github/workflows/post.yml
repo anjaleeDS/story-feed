@@ -1,17 +1,14 @@
-name: Make & Publish Story
+name: Generate story, image, and update RSS
 
 on:
+  workflow_dispatch:
   schedule:
-    # Runs every day at 16:00 UTC (≈ 9:00 AM PT during DST, 8:00 AM PST in winter).
-    - cron: "0 16 * * *"
-  workflow_dispatch: {}  # manual run button
-
-permissions:
-  contents: write
+    - cron: "0 15 * * *" # runs daily at 3PM UTC
 
 jobs:
-  run:
+  build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -19,24 +16,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
 
       - name: Install deps
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 🔍 Diagnostic Step — check OpenAI image API permissions
       - name: Diagnose Images API access
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-      
+
           if [ -z "${OPENAI_API_KEY:-}" ]; then
             echo "::error:: OPENAI_API_KEY is not set or empty."
             exit 1
           fi
-      
+
           echo "=== 1) List models ==="
           curl -sS -D /tmp/models.h \
             -w '\nHTTP:%{http_code}\n' \
@@ -50,7 +47,7 @@ jobs:
           head -c 800 /tmp/models.json; echo
           echo "--- status ---"
           tail -n1 /tmp/models.json || true  # prints HTTP:<code> marker if present
-      
+
           echo
           echo "=== 2) Test image generation ==="
           curl -sS -D /tmp/images.h \
@@ -66,29 +63,17 @@ jobs:
           head -c 800 /tmp/images.json; echo
           echo "--- status ---"
           tail -n1 /tmp/images.json || true
-  
-        - name: Generate story, image, and update RSS
-          env:
-            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-            # MODEL: gpt-5
-            # IMG_MODEL: gpt-image-1
-            MODEL: o4-mini              # safer default than gpt-5 for now
-            IMG_MODEL: gpt-image-1
-            POST_TOPIC: "ocean run, clarity, morning fog"
-            POST_MIN_WORDS: "450"
-            POST_MAX_WORDS: "650"
-            IMG_SIZE: "1024x1024"
-            PUBLIC_BASE_URL: "https://anjaleeDS.github.io/story-feed"
-          run: python scripts/make_post.py
+
+      # 🧠 Your actual generation job
+      - name: Generate story, image, and update RSS
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python scripts/make_post.py
 
       - name: Commit & push if changed
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: new story $(date -u +'%Y-%m-%d %H:%M:%S')"
-            git push
-          else
-            echo "No changes to commit."
-          fi
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add docs/posts docs/images docs/feed.xml || true
+          git commit -m "auto: new story $(date -u +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
+          git push
