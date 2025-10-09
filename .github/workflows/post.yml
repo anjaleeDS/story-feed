@@ -1,1 +1,51 @@
+name: Make & Publish Story
 
+on:
+  schedule:
+    # Runs every day at 16:00 UTC (≈ 9:00 AM PT during DST, 8:00 AM PST in winter).
+    - cron: "0 16 * * *"
+  workflow_dispatch: {}  # manual run button
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate story, image, and update RSS
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODEL: gpt-5
+          IMG_MODEL: gpt-image-1
+          POST_TOPIC: "ocean run, clarity, morning fog"
+          POST_MIN_WORDS: "450"
+          POST_MAX_WORDS: "650"
+          IMG_SIZE: "1024x1024"
+          PUBLIC_BASE_URL: "https://<your-user>.github.io/<your-repo>"
+        run: python scripts/make_post.py
+
+      - name: Commit & push if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "auto: new story $(date -u +'%Y-%m-%d %H:%M:%S')"
+            git push
+          else
+            echo "No changes to commit."
+          fi
