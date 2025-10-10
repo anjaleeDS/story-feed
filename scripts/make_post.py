@@ -145,27 +145,38 @@ def generate_image(prompt: str):
         raise RuntimeError(f"Images API error {r.status_code}: {r.text[:800]}")
     b64 = r.json()["data"][0]["b64_json"]
     return base64.b64decode(b64), "png"
+    
 # ---------------------------- RSS Update -------------------------------------
-
-def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
+def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str, img_mime: str):
     xml = FEED.read_text(encoding="utf-8")
     root = ET.fromstring(xml)
     chan = root.find("channel")
     if chan is None:
         raise RuntimeError("Invalid RSS feed: missing <channel>")
 
-    timestamp_str = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
-    lbd = chan.find("lastBuildDate") or ET.SubElement(chan, "lastBuildDate")
-    lbd.text = timestamp_str
+    # Update lastBuildDate
+    lbd = chan.find("lastBuildDate")
+    if lbd is None:
+        lbd = ET.SubElement(chan, "lastBuildDate")
+    lbd.text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
+    # Create item
     item = ET.SubElement(chan, "item")
     ET.SubElement(item, "title").text = title
     ET.SubElement(item, "link").text = post_url
     ET.SubElement(item, "guid").text = post_url
-    ET.SubElement(item, "pubDate").text = timestamp_str
+    ET.SubElement(item, "pubDate").text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
     desc = ET.SubElement(item, "description")
     desc.text = f"<![CDATA[{story_html}<p><img src='{img_abs_url}' alt='illustration'/></p>]]>"
-    FEED.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+
+    # Helpful for some consumers: <enclosure>
+    enc = ET.SubElement(item, "enclosure")
+    enc.set("url", img_abs_url)
+    enc.set("type", img_mime)
+
+    new_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    FEED.write_bytes(new_xml)
+
 # ------------------------------ Main -----------------------------------------
 
 def main():
