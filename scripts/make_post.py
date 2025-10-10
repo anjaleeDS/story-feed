@@ -220,74 +220,32 @@ def get_story_and_prompt():
 # --------------------- OpenAI: Image Generation (robust) ----------------------
 
 def generate_image(prompt: str):
-    """
-    Try OpenAI Images API. If 401/403 (or any failure), fall back to a simple SVG poster.
-    Returns (bytes, ext) where ext is 'png' or 'svg'.
-    """
-    def make_svg(text: str) -> bytes:
-        safe = (text or "illustration").strip().replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
-        snippet = (safe[:180] + "…") if len(safe) > 180 else safe
-        svg = f"""<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#1e293b"/>
-    </linearGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#g)"/>
-  <g transform="translate(56,80)">
-    <text x="0" y="0" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="42" font-weight="700" fill="#e5e7eb">
-      Auto Illustration
-    </text>
-    <foreignObject x="0" y="28" width="1168" height="600">
-      <div xmlns="http://www.w3.org/1999/xhtml"
-           style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; font-size: 24px; line-height: 1.45; color:#cbd5e1;">
-        {snippet}
-      </div>
-    </foreignObject>
-  </g>
-</svg>"""
-        return svg.encode("utf-8")
-
     url = "https://api.openai.com/v1/images/generations"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+
     payload = {"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE}
+    # DALL·E models prefer explicit b64_json
+    if IMG_MODEL.lower().startswith("dall-e"):
+        payload["response_format"] = "b64_json"
 
-    try:
-        r = requests.post(url, headers=headers, json=payload, timeout=180)
-        # If your org isn’t verified or images aren’t enabled, fall back to SVG,
-        # but still surface the reason in logs.
-        if r.status_code in (401, 403):
-            print(f"::warning::Images API {r.status_code}: {r.text[:600]}")
-            return make_svg(prompt), "svg"
+    r = requests.post(url, headers=headers, json=payload, timeout=180)
+    if r.status_code in (401, 403):
+        print(f"::warning::Images API {r.status_code}: {r.text[:600]}")
+        # keep your SVG fallback here if you want graceful posts
+        raise PermissionError("Image model is not accessible for this key/org.")
+    r.raise_for_status()
+    j = r.json()
+    d = (j.get("data") or [{}])[0]
 
-        r.raise_for_status()
-        j = r.json()
-        item = (j.get("data") or [{}])[0]
-        if item.get("b64_json"):
-            import base64
-            return base64.b64decode(item["b64_json"]), "png"
-        if item.get("url"):
-            img = requests.get(item["url"], timeout=180)
-            img.raise_for_status()
-            ct = (img.headers.get("Content-Type") or "").lower()
-            if "png" in ct:   ext = "png"
-            elif "jpeg" in ct or "jpg" in ct: ext = "jpg"
-            elif "webp" in ct: ext = "webp"
-            elif "svg" in ct:  ext = "svg"
-            else:              ext = "png"
-            return img.content, ext
+    if d.get("b64_json"):
+        return base64.b64decode(d["b64_json"]), "png"
+    if d.get("url"):
+        img = requests.get(d["url"], timeout=180); img.raise_for_status()
+        ct = (img.headers.get("Content-Type") or "").lower()
+        ext = "png" if "png" in ct else ("jpg" if "jpeg" in ct or "jpg" in ct else "webp" if "webp" in ct else "png")
+        return img.content, ext
 
-        print("::warning::No b64_json/url in image response; falling back to SVG")
-        return make_svg(prompt), "svg"
-
-    except Exception as e:
-        print(f"::warning::Images API exception: {str(e)[:600]}")
-        return make_svg(prompt), "svg"
+    raise RuntimeError(f"No image payload returned: {str(j)[:600]}")
 
 # ---------------------------- RSS Update -------------------------------------
 
