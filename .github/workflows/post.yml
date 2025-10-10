@@ -43,7 +43,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests
-
+ # 🩵 Add this Debug Step BEFORE running your Python script
+      - name: Debug environment variables
+        run: |
+          echo "MODEL=$MODEL"
+          echo "IMG_MODEL=$IMG_MODEL"
+          echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
+          echo "POST_TOPIC=$POST_TOPIC"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODEL: ${{ vars.MODEL }}
+          IMG_MODEL: ${{ vars.IMG_MODEL }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          POST_TOPIC: ${{ vars.POST_TOPIC }}
+ 
       - name: Generate story, image, and update RSS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
