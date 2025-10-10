@@ -452,7 +452,7 @@ def main():
   <main class="wrap">
     <figure><img class="post" src="{rel_img_url}" alt="illustration for {title}"></figure>
     <article>{story_html}</article>
-    <footer class="note"><a href="{home_url}">← Back to all stories</a></footer>
+   
   </main>
   <script>
     function smartClose() {{
