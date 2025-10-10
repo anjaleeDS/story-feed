@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 # --- Configuration via environment variables ---
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 MODEL = os.environ.get("MODEL", "o4-mini")
-IMG_MODEL = os.environ.get("IMG_MODEL", "gpt-image-1")
+IMG_MODEL = os.environ.get("IMG_MODEL", "dall-e-2")
 TOPIC = os.environ.get("POST_TOPIC", "an uplifting micro-story about clarity on a foggy ocean run")
 MIN_WORDS = int(os.environ.get("POST_MIN_WORDS", "450"))
 MAX_WORDS = int(os.environ.get("POST_MAX_WORDS", "650"))
