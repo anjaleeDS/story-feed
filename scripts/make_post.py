@@ -71,43 +71,151 @@ def ensure_feed():
 # ----------------------- OpenAI: Story JSON ----------------------------------
 
 def get_story_and_prompt():
-    """Fetch story + image prompt as JSON via Responses API."""
+    """
+    Robustly fetch {title, story_html, image_prompt} via Responses API,
+    handling multiple response shapes. Falls back to Chat Completions.
+    """
     system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
     user = (
         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
         f"Topic: {TOPIC}. Tone: vivid, eerie, cinematic. "
         "Also produce a one-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
-        "and a short natural-language title. "
-        "Return only a JSON object with keys: title, story_html, image_prompt."
+        "and a short natural-language title. Return only a JSON object with keys: title, story_html, image_prompt."
     )
 
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
 
-    r = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers=headers,
-        json={
-            "model": MODEL,
-            "input": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        },
-        timeout=120
-    )
-    r.raise_for_status()
-    data = r.json()
+    def try_parse_obj(obj):
+        """Return (title, story_html, image_prompt) or None."""
+        if not isinstance(obj, dict):
+            return None
+        if {"title", "story_html", "image_prompt"} <= set(obj.keys()):
+            title = (obj.get("title") or "Automated Story").strip()
+            story_html = obj.get("story_html") or ""
+            image_prompt = obj.get("image_prompt") or ""
+            if story_html and image_prompt:
+                return title, story_html, image_prompt
+        return None
 
-    content = data.get("content") or []
-    txt = (content[0].get("text") if content else "").strip()
+    def extract_from_responses_json(data):
+        """
+        Handle known shapes:
+          - data.content[0].text -> JSON string
+          - data.output[...].content[0].text -> JSON string
+          - top-level keys (rare)
+        Return tuple or None.
+        """
+        # 1) Top-level object (rare)
+        got = try_parse_obj(data)
+        if got: return got
+
+        # 2) content list -> first segment text
+        content = data.get("content")
+        if isinstance(content, list) and content:
+            txt = (content[0].get("text") or "").strip()
+            if txt:
+                # might be a JSON string, or in fringe cases already a dict
+                if isinstance(txt, str):
+                    try:
+                        obj = json.loads(txt)
+                        got = try_parse_obj(obj)
+                        if got: return got
+                    except Exception:
+                        pass
+                got = try_parse_obj(txt)
+                if got: return got
+
+        # 3) output list -> find a message -> its content[0].text
+        out = data.get("output")
+        if isinstance(out, list):
+            for item in out:
+                if item.get("type") == "message":
+                    segs = item.get("content") or []
+                    if segs:
+                        txt = (segs[0].get("text") or "").strip()
+                        if txt:
+                            try:
+                                obj = json.loads(txt)
+                                got = try_parse_obj(obj)
+                                if got: return got
+                            except Exception:
+                                pass
+                            got = try_parse_obj(txt)
+                            if got: return got
+
+        # 4) output dict variant
+        if isinstance(out, dict):
+            got = try_parse_obj(out)
+            if got: return got
+            segs = out.get("content") or []
+            if isinstance(segs, list) and segs:
+                txt = (segs[0].get("text") or "").strip()
+                if txt:
+                    try:
+                        obj = json.loads(txt)
+                        got = try_parse_obj(obj)
+                        if got: return got
+                    except Exception:
+                        pass
+
+        return None
+
+    # ---- Try Responses API ----
     try:
-        obj = json.loads(txt)
-        title = (obj.get("title") or "Automated Story").strip()
-        story_html = obj.get("story_html") or ""
-        image_prompt = obj.get("image_prompt") or ""
-        return title, story_html, image_prompt
+        r = requests.post(
+            "https://api.openai.com/v1/responses",
+            headers=headers,
+            json={
+                "model": MODEL,
+                "input": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            },
+            timeout=120,
+        )
+        # If the API returns an error body, surface it (helps debugging)
+        if r.status_code != 200:
+            raise RuntimeError(f"Responses API {r.status_code}: {r.text[:800]}")
+        data = r.json()
+
+        got = extract_from_responses_json(data)
+        if got:
+            return got
+
+        # If we get here, we received a shape we didn't parse; show a snippet for visibility
+        snippet = json.dumps(data)[:800]
+        print("::warning::Unparsed Responses API shape:", snippet)
+
     except Exception as e:
-        raise RuntimeError(f"Failed to parse JSON: {e}\nRaw: {txt[:500]}")
+        # Log, then fall back
+        print("::warning::Responses API failed:", str(e)[:800])
+
+    # ---- Fallback: Chat Completions ----
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": MODEL,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user + " Return only JSON."},
+                ],
+            },
+            timeout=120,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(f"Chat API {r.status_code}: {r.text[:800]}")
+        txt = r.json()["choices"][0]["message"]["content"].strip()
+        obj = json.loads(txt)
+        got = try_parse_obj(obj)
+        if got:
+            return got
+        raise RuntimeError("Chat fallback returned invalid JSON object.")
+    except Exception as e:
+        # Bubble up a concise error; GH Actions will show this nicely
+        raise RuntimeError(f"Failed to get story JSON after fallback: {e}")
 
 # --------------------- OpenAI: Image Generation (robust) ----------------------
 
