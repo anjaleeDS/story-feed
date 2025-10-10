@@ -1,3 +1,22 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+make_post.py
+Generates a short story + image, writes an HTML post under docs/posts/,
+saves the image under docs/images/, and appends an item to docs/feed.xml.
+
+Configuration (via env vars):
+  OPENAI_API_KEY
+  MODEL              (default: "o4-mini")
+  IMG_MODEL          (default: "gpt-image-1")
+  POST_TOPIC         (default: "a horror story in three sentences")
+  POST_MIN_WORDS     (default: 10)
+  POST_MAX_WORDS     (default: 55)
+  IMG_SIZE           (default: "1024x1024")
+  PUBLIC_BASE_URL    (default: "https://anjaleeds.github.io/story-feed")
+"""
+
 import os
 import re
 import json
@@ -10,12 +29,12 @@ import xml.etree.ElementTree as ET
 # --- Configuration via environment variables ---
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 MODEL = os.environ.get("MODEL", "o4-mini")
-IMG_MODEL = os.environ.get("IMG_MODEL", "dall-e-2")
+IMG_MODEL = os.environ.get("IMG_MODEL", "gpt-image-1")
 TOPIC = os.environ.get("POST_TOPIC", "a horror story in three sentences")
 MIN_WORDS = int(os.environ.get("POST_MIN_WORDS", "10"))
 MAX_WORDS = int(os.environ.get("POST_MAX_WORDS", "55"))
 IMG_SIZE = os.environ.get("IMG_SIZE", "1024x1024")
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://anjaleeDS.github.io/story-feed")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://anjaleeds.github.io/story-feed")
 
 # --- Paths (repo-relative) ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +50,6 @@ def utcnow():
     return datetime.datetime.utcnow()
 
 def slugify(s: str) -> str:
-    # Keep only letters, numbers, space and hyphen; then collapse spaces to hyphens.
     s = re.sub(r"[^A-Za-z0-9 -]", "", s).strip().lower()
     s = re.sub(r"\s+", "-", s)
     return s[:60] or "story"
@@ -49,17 +67,18 @@ def ensure_feed():
         '</channel></rss>',
         encoding="utf-8"
     )
-    
+
 # ----------------------- OpenAI: Story JSON ----------------------------------
 
 def get_story_and_prompt():
+    """Fetch story + image prompt as JSON via Responses API."""
     system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
     user = (
         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
-        f"Topic: {TOPIC}. Tone: warm, scary, hypervisual. "
-        "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
-        "and a short natural language title. "
-        "Return a JSON object with keys: title, story_html, image_prompt — nothing else."
+        f"Topic: {TOPIC}. Tone: vivid, eerie, cinematic. "
+        "Also produce a one-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
+        "and a short natural-language title. "
+        "Return only a JSON object with keys: title, story_html, image_prompt."
     )
 
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
@@ -73,80 +92,62 @@ def get_story_and_prompt():
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            # Proper JSON mode for Responses API
-            "text": {"format": {"type": "json_object"}}
         },
         timeout=120
     )
     r.raise_for_status()
     data = r.json()
 
-    def try_extract(obj):
-        if isinstance(obj, dict) and {"title","story_html","image_prompt"} <= set(obj.keys()):
-            return obj.get("title") or "Automated Story", obj["story_html"], obj["image_prompt"]
-        return None
+    content = data.get("content") or []
+    txt = (content[0].get("text") if content else "").strip()
+    try:
+        obj = json.loads(txt)
+        title = (obj.get("title") or "Automated Story").strip()
+        story_html = obj.get("story_html") or ""
+        image_prompt = obj.get("image_prompt") or ""
+        return title, story_html, image_prompt
+    except Exception as e:
+        raise RuntimeError(f"Failed to parse JSON: {e}\nRaw: {txt[:500]}")
 
-    # 1) Top-level
-    got = try_extract(data)
-    if got: return got
-
-    # 2) Nested dict under "output"
-    out = data.get("output")
-    got = try_extract(out)
-    if got: return got
-
-    # 3) "output" list → find message → content[].text (dict or JSON string)
-    if isinstance(out, list):
-        for item in out:
-            if item.get("type") == "message":
-                for seg in item.get("content", []):
-                    t = seg.get("text")
-                    got = try_extract(t)
-                    if got: return got
-                    if isinstance(t, str):
-                        try:
-                            parsed = json.loads(t)
-                            got = try_extract(parsed)
-                            if got: return got
-                        except Exception:
-                            pass
-
-    # 4) Top-level "content"
-    content = data.get("content")
-    if isinstance(content, list):
-        for seg in content:
-            t = seg.get("text")
-            got = try_extract(t)
-            if got: return got
-            if isinstance(t, str):
-                try:
-                    parsed = json.loads(t)
-                    got = try_extract(parsed)
-                    if got: return got
-                except Exception:
-                    pass
-
-    raise RuntimeError(f"Missing keys in JSON response: {json.dumps(data)[:800]}")
-    
-# --------------------- OpenAI: Image Generation (strict) ----------------------
+# --------------------- OpenAI: Image Generation (robust) ----------------------
 
 def generate_image(prompt: str):
     """
     Generate an image with OpenAI Images API.
-    Returns (image_bytes, ext) where ext is 'png'.
+    Returns (image_bytes, ext).
     """
-    r = requests.post(
-        "https://api.openai.com/v1/images/generations",
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-        json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE, "response_format": "b64_json"},
-        timeout=180
-    )
-    if r.status_code != 200:
-        raise RuntimeError(f"Images API error {r.status_code}: {r.text[:800]}")
-    b64 = r.json()["data"][0]["b64_json"]
-    return base64.b64decode(b64), "png"
-    
+    url = "https://api.openai.com/v1/images/generations"
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE}
+
+    r = requests.post(url, headers=headers, json=payload, timeout=180)
+    if r.status_code in (401, 403):
+        raise PermissionError(f"Images API {r.status_code}: {r.text[:600]}")
+    r.raise_for_status()
+    j = r.json()
+    item = (j.get("data") or [{}])[0]
+
+    if item.get("b64_json"):
+        return base64.b64decode(item["b64_json"]), "png"
+
+    if item.get("url"):
+        img = requests.get(item["url"], timeout=180)
+        img.raise_for_status()
+        ct = (img.headers.get("Content-Type") or "").lower()
+        if "png" in ct:   ext = "png"
+        elif "jpeg" in ct or "jpg" in ct: ext = "jpg"
+        elif "webp" in ct: ext = "webp"
+        elif "svg" in ct:  ext = "svg"
+        else:              ext = "png"
+        return img.content, ext
+
+    raise RuntimeError(f"No b64_json/url in image response: {str(j)[:600]}")
+
 # ---------------------------- RSS Update -------------------------------------
+
 def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str, img_mime: str):
     xml = FEED.read_text(encoding="utf-8")
     root = ET.fromstring(xml)
@@ -154,13 +155,11 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     if chan is None:
         raise RuntimeError("Invalid RSS feed: missing <channel>")
 
-    # Update lastBuildDate
     lbd = chan.find("lastBuildDate")
     if lbd is None:
         lbd = ET.SubElement(chan, "lastBuildDate")
     lbd.text = utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
 
-    # Create item
     item = ET.SubElement(chan, "item")
     ET.SubElement(item, "title").text = title
     ET.SubElement(item, "link").text = post_url
@@ -169,7 +168,6 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     desc = ET.SubElement(item, "description")
     desc.text = f"<![CDATA[{story_html}<p><img src='{img_abs_url}' alt='illustration'/></p>]]>"
 
-    # Helpful for some consumers: <enclosure>
     enc = ET.SubElement(item, "enclosure")
     enc.set("url", img_abs_url)
     enc.set("type", img_mime)
@@ -186,19 +184,16 @@ def main():
     timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
     slug = f"{slugify(title)}-{timestamp}"
 
-    # Image
     img_bytes, img_ext = generate_image(image_prompt)
-    print({"image_ext": img_ext})
     img_name = f"{timestamp}.{img_ext}"
     (IMGS / img_name).write_bytes(img_bytes)
 
-    # Paths/URLs
-    rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"   # served by GH Pages
-    base = PUBLIC_BASE_URL or "https://<your-user>.github.io/<your-repo>"
+    # --- URL handling ---
+    rel_img_url = f"../images/{img_name}"  # works for project pages
+    base = PUBLIC_BASE_URL or "https://anjaleeds.github.io/story-feed"
     img_abs_url = f"{base}/images/{img_name}"
     post_url = f"{base}/posts/{slug}.html"
 
-    # MIME for enclosure
     img_mime = {
         "png": "image/png",
         "jpg": "image/jpeg",
@@ -207,7 +202,7 @@ def main():
         "svg": "image/svg+xml",
     }.get(img_ext.lower(), "image/png")
 
-    # Pretty HTML post with sticky top bar + Close button
+    # --- Pretty HTML page with sticky topbar + Close button ---
     home_url = base
     pretty_html = f"""<!doctype html>
 <html lang="en">
@@ -241,7 +236,6 @@ def main():
     html, body {{
       margin: 0; background: var(--bg); color: var(--fg);
       font: 16px/1.65 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
-      text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
     }}
     .topbar {{
       position: sticky; top: 0; z-index: 3;
@@ -255,57 +249,36 @@ def main():
     }}
     .title {{
       font-size: clamp(1.1rem, 2.2vw, 1.5rem); font-weight: 640; margin: 0;
-      letter-spacing: .2px;
     }}
     .close {{
       appearance: none; border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
       background: color-mix(in oklab, var(--card) 70%, transparent);
       color: var(--fg); padding: 8px 12px; border-radius: 999px; cursor: pointer;
-      font-weight: 600; transition: .15s ease; box-shadow: 0 0 0 0 var(--ring);
+      font-weight: 600; transition: .15s ease;
     }}
-    .close:hover {{ transform: translateY(-1px); border-color: color-mix(in oklab, var(--fg) 22%, transparent); }}
-    .close:focus-visible {{ outline: none; box-shadow: 0 0 0 6px var(--ring); }}
     .wrap {{ max-width: var(--maxw); margin: 24px auto 60px auto; padding: 0 16px; }}
     figure {{
-      margin: 0 0 18px 0; display:block;
-      background: color-mix(in oklab, var(--fg) 4%, transparent);
-      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+      margin: 0 0 18px 0; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
     }}
-    img.post {{
-      width: 100%; height: auto; display:block; object-fit: cover;
-    }}
+    img.post {{ width: 100%; height: auto; display:block; object-fit: cover; }}
     article {{ font-size: 1.05rem; }}
-    article h2 {{ font-size: 1.6rem; line-height:1.25; margin: 12px 0 8px 0; }}
-    article p {{ margin: 0 0 12px 0; }}
     footer.note {{
       margin-top: 28px; color: var(--muted); font-size: .95rem; text-align:center;
     }}
-    a.home {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
-    a.home:hover {{ text-decoration: underline; }}
   </style>
 </head>
 <body>
   <div class="topbar">
     <div class="topwrap">
       <h1 class="title">{title}</h1>
-      <button class="close" onclick="smartClose()" aria-label="Close this story">Close ✕</button>
+      <button class="close" onclick="smartClose()">Close ✕</button>
     </div>
   </div>
-
   <main class="wrap">
-    <figure>
-      <img class="post" src="{rel_img_url}" alt="illustration for {title}">
-    </figure>
-
-    <article>
-      {story_html}
-    </article>
-
-    <footer class="note">
-      <a class="home" href="{home_url}">← Back to all stories</a>
-    </footer>
+    <figure><img class="post" src="{rel_img_url}" alt="illustration for {title}"></figure>
+    <article>{story_html}</article>
+    <footer class="note"><a href="{home_url}">← Back to all stories</a></footer>
   </main>
-
   <script>
     function smartClose() {{
       if (window.opener && !window.opener.closed) {{ window.close(); return; }}
@@ -320,18 +293,16 @@ def main():
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(pretty_html, encoding="utf-8")
 
-    # RSS
     append_rss_item(title, post_url, story_html, img_abs_url, img_mime)
 
-    # Summary for GitHub Actions + console notice
+    # GitHub Actions summary output
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write("## ✅ New post published\n")
             f.write(f"- **Title:** {title}\n")
             f.write(f"- **URL:** {post_url}\n")
-            f.write(f"- **Image:** {img_abs_url}\n")
-            f.write(f"- **Image file:** {img_name}\n\n")
+            f.write(f"- **Image:** {img_abs_url}\n\n")
     print(f"::notice title=New post::{post_url}")
 
 if __name__ == "__main__":
