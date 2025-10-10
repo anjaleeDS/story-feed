@@ -220,32 +220,95 @@ def get_story_and_prompt():
 # --------------------- OpenAI: Image Generation (robust) ----------------------
 
 def generate_image(prompt: str):
+    """
+    Generate an image via Images API with retries.
+    - Adds response_format=b64_json for DALL·E models.
+    - Retries on 5xx/timeouts.
+    - Falls back to an SVG poster if it still fails.
+    Returns (bytes, ext) where ext is 'png'|'jpg'|'webp'|'svg'.
+    """
+    import time
+
+    def make_svg(text: str) -> bytes:
+        safe = (text or "illustration").strip().replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")
+        snippet = (safe[:180] + "…") if len(safe) > 180 else safe
+        svg = f"""<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <g transform="translate(56,80)">
+    <text x="0" y="0" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="42" font-weight="700" fill="#e5e7eb">
+      Auto Illustration
+    </text>
+    <foreignObject x="0" y="28" width="1168" height="600">
+      <div xmlns="http://www.w3.org/1999/xhtml"
+           style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; font-size: 24px; line-height: 1.45; color:#cbd5e1;">
+        {snippet}
+      </div>
+    </foreignObject>
+  </g>
+</svg>"""
+        return svg.encode("utf-8")
+
     url = "https://api.openai.com/v1/images/generations"
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
 
     payload = {"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE}
-    # DALL·E models prefer explicit b64_json
+    # DALL·E models behave better with explicit b64_json
     if IMG_MODEL.lower().startswith("dall-e"):
         payload["response_format"] = "b64_json"
 
-    r = requests.post(url, headers=headers, json=payload, timeout=180)
-    if r.status_code in (401, 403):
-        print(f"::warning::Images API {r.status_code}: {r.text[:600]}")
-        # keep your SVG fallback here if you want graceful posts
-        raise PermissionError("Image model is not accessible for this key/org.")
-    r.raise_for_status()
-    j = r.json()
-    d = (j.get("data") or [{}])[0]
+    # Simple retry loop for transient 5xx/timeouts
+    for attempt in range(3):
+        try:
+            print(f"Calling Images API ({IMG_MODEL}) attempt {attempt+1}/3 …")
+            r = requests.post(url, headers=headers, json=payload, timeout=90)
+            if r.status_code in (401, 403):
+                print(f"::warning::Images API {r.status_code}: {r.text[:600]}")
+                return make_svg(prompt), "svg"  # graceful publish
+            if 500 <= r.status_code < 600:
+                # transient backend error — retry
+                print(f"::warning::Images API {r.status_code}: {r.text[:600]}")
+                time.sleep(2 * (attempt + 1))
+                continue
 
-    if d.get("b64_json"):
-        return base64.b64decode(d["b64_json"]), "png"
-    if d.get("url"):
-        img = requests.get(d["url"], timeout=180); img.raise_for_status()
-        ct = (img.headers.get("Content-Type") or "").lower()
-        ext = "png" if "png" in ct else ("jpg" if "jpeg" in ct or "jpg" in ct else "webp" if "webp" in ct else "png")
-        return img.content, ext
+            r.raise_for_status()
+            j = r.json()
+            d = (j.get("data") or [{}])[0]
 
-    raise RuntimeError(f"No image payload returned: {str(j)[:600]}")
+            if d.get("b64_json"):
+                return base64.b64decode(d["b64_json"]), "png"
+
+            if d.get("url"):
+                img = requests.get(d["url"], timeout=90)
+                img.raise_for_status()
+                ct = (img.headers.get("Content-Type") or "").lower()
+                if "png" in ct:   ext = "png"
+                elif "jpeg" in ct or "jpg" in ct: ext = "jpg"
+                elif "webp" in ct: ext = "webp"
+                elif "svg" in ct:  ext = "svg"
+                else:              ext = "png"
+                return img.content, ext
+
+            print("::warning::No b64_json/url in image response; using SVG fallback.")
+            return make_svg(prompt), "svg"
+
+        except requests.exceptions.Timeout:
+            print("::warning::Images API timeout; retrying…")
+            time.sleep(2 * (attempt + 1))
+        except requests.exceptions.RequestException as e:
+            # Non-HTTP errors (network hiccup, etc.) — retry once or twice then fallback
+            print(f"::warning::Images API request error: {str(e)[:600]}")
+            time.sleep(2 * (attempt + 1))
+
+    # After retries, fallback
+    print("::warning::Images API failed after retries; using SVG fallback.")
+    return make_svg(prompt), "svg"
 
 # ---------------------------- RSS Update -------------------------------------
 
