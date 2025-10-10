@@ -14,6 +14,7 @@
       --radius: 16px;
       --shadow: 0 4px 16px rgba(0,0,0,.4);
     }
+    * { box-sizing: border-box; }
     body {
       background: var(--bg);
       color: var(--fg);
@@ -42,18 +43,17 @@
       transform: translateY(-3px);
       box-shadow: 0 8px 24px rgba(0,0,0,.6);
     }
-    img.thumb {
+    .thumb {
       width: 100%;
       height: 200px;
       object-fit: cover;
       display: block;
+      background: #0f1216;
     }
-    .inner {
-      padding: 16px 20px;
-    }
+    .inner { padding: 16px 20px; }
     h2 {
       font-size: 1.1rem;
-      margin: 0 0 10px 0;
+      margin: 0 0 8px 0;
       color: var(--accent);
     }
     p.desc {
@@ -62,6 +62,12 @@
       line-height: 1.4;
       margin: 0;
     }
+    .skeleton {
+      animation: pulse 1.3s infinite ease-in-out;
+      background: linear-gradient(90deg, #121519, #151a20, #121519);
+      background-size: 200% 100%;
+    }
+    @keyframes pulse { 0%{background-position:0% 0} 100%{background-position: -200% 0} }
   </style>
 </head>
 <body>
@@ -70,48 +76,87 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const FEED_URL = "https://anjaleeds.github.io/story-feed/feed.xml";
-    const FEED_VER = "v=3"; // bump this anytime you push a new feed
-    const feedUrl = FEED_URL + (FEED_URL.includes("?") ? "&" : "?") + FEED_VER;
-    const COUNT = Number(params.get("count") || 8);
+    const FEED_VER = "v=23"; // bump when you push updates
+    const feedUrl  = FEED_URL + (FEED_URL.includes("?") ? "&" : "?") + FEED_VER;
+    const COUNT    = Math.min(99, Number(params.get("count") || 8));
+
+    // helper
+    const absolutize = (url, base) => new URL(url, base).href;
+
+    // load image with retry + cache-busting
+    function loadImageWithRetry(imgEl, baseUrl, maxTries = 5) {
+      let tries = 0;
+      function attempt() {
+        const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "v=" + Date.now();
+        imgEl.src = url;
+      }
+      imgEl.addEventListener("error", () => {
+        tries++;
+        if (tries < maxTries) {
+          const backoff = Math.min(1500 * Math.pow(1.6, tries), 6000);
+          setTimeout(attempt, backoff);
+        } else {
+          console.warn("Image failed after retries:", baseUrl);
+          // leave skeleton background; could also hide the image
+        }
+      }, { once: false });
+      attempt();
+    }
 
     fetch(feedUrl, { cache: "no-store" })
       .then(r => r.text())
       .then(xmlText => {
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlText, "application/xml");
-        const items = Array.from(xml.querySelectorAll("item")).slice(-COUNT).reverse();
+        const allItems = Array.from(xml.querySelectorAll("item"));
+        // newest first
+        const items = allItems.slice(-COUNT).reverse();
         const grid = document.getElementById("grid");
-        const FEED_BASE = "https://anjaleeds.github.io/story-feed/";
 
         for (const item of items) {
           const title = item.querySelector("title")?.textContent || "Untitled";
-          const link = item.querySelector("link")?.textContent;
-          const desc = item.querySelector("description")?.textContent || "";
-          const enclosure = item.querySelector("enclosure");
-          let img = enclosure?.getAttribute("url") || null;
+          const link  = item.querySelector("link")?.textContent || "#";
+          const desc  = item.querySelector("description")?.textContent || "";
 
+          // Prefer enclosure
+          const enc = item.querySelector("enclosure");
+          let img = enc?.getAttribute("url") || null;
           if (!img) {
-            const match = desc.match(/<img[^>]+src=['"]([^'"]+)['"]/i);
-            if (match) img = match[1];
+            const m = desc.match(/<img[^>]+src=['"]([^'"]+)['"]/i);
+            if (m) img = m[1];
           }
+          if (img) img = absolutize(img, FEED_URL);
 
-          if (img) {
-            img = new URL(img, FEED_BASE).href;
-            img += (img.includes("?") ? "&" : "?") + "v=" + Date.now(); // cache-bust
-          }
-
-          const p = document.createElement("article");
-          p.innerHTML = `
-            ${img ? `<a href="${link}" target="_blank"><img class="thumb" src="${img}" alt="${title}"></a>` : ""}
+          const card = document.createElement("article");
+          const safeText = desc.replace(/<[^>]+>/g, "").trim().slice(0, 160);
+          card.innerHTML = `
+            ${img ? `<a href="${link}" target="_blank" rel="noopener">
+              <img class="thumb skeleton" alt="${title}">
+            </a>` : ""}
             <div class="inner">
-              <h2><a href="${link}" target="_blank" style="color:inherit;text-decoration:none;">${title}</a></h2>
-              <p class="desc">${desc.replace(/<[^>]+>/g, '').slice(0, 160)}...</p>
+              <h2><a href="${link}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">${title}</a></h2>
+              <p class="desc">${safeText}${safeText.length === 160 ? "…" : ""}</p>
             </div>
           `;
-          grid.appendChild(p);
+          grid.appendChild(card);
+
+          // start image loading with retry if we have one
+          if (img) {
+            const imgEl = card.querySelector(".thumb");
+            loadImageWithRetry(imgEl, img);
+            imgEl.addEventListener("load", () => imgEl.classList.remove("skeleton"), { once: true });
+          }
         }
 
-        // Resize message for Squarespace iframe
+        // tell parent to resize
+        requestAnimationFrame(() => {
+          const height = document.body.scrollHeight;
+          window.parent.postMessage({ type: "widget-size", height }, "*");
+        });
+      })
+      .catch(err => {
+        console.error("Feed load error:", err);
+        // still try to resize so the iframe doesn't clip
         const height = document.body.scrollHeight;
         window.parent.postMessage({ type: "widget-size", height }, "*");
       });
