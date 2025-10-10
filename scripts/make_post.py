@@ -476,7 +476,7 @@ def main():
   <div class="topbar">
     <div class="topwrap">
       <h1 class="title">{title}</h1>
-      <button class="close" onclick="smartClose()" aria-label="Close this story">Close ✕</button>
+      <button class="close" onclick="smartBack()" aria-label="Back to feed">← Back</button>
     </div>
   </div>
 
@@ -495,13 +495,18 @@ def main():
   </main>
 
   <script>
-    function smartClose() {{
-      if (window.opener && !window.opener.closed) {{ window.close(); return; }}
-      if (document.referrer && history.length > 1) {{ history.back(); return; }}
-      window.location.href = "{home_url}";
+    function smartBack() {{
+      if (history.length > 1) {{
+        history.back();  // go back to previous page
+      }} else {{
+        window.location.href = "{home_url}";  // fallback if no history
+      }}
     }}
-    window.addEventListener('keydown', (e) => {{ if (e.key === 'Escape') smartClose(); }});
+    window.addEventListener('keydown', (e) => {{
+      if (e.key === 'Escape') smartBack();
+    }});
   </script>
+
 </body>
 </html>"""
 
