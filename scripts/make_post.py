@@ -8,8 +8,8 @@ saves the image under docs/images/, and appends an item to docs/feed.xml.
 
 Configuration (via env vars):
   OPENAI_API_KEY
-  MODEL              (default: "o4-mini")
-  IMG_MODEL          (default: "gpt-image-1")
+  MODEL              (default: "gpt-5")
+  IMG_MODEL          (default: "dall-e-2")
   POST_TOPIC         (default: "a horror story in three sentences")
   POST_MIN_WORDS     (default: 10)
   POST_MAX_WORDS     (default: 55)
