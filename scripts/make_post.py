@@ -525,10 +525,6 @@ def main():
     # Append to RSS with random publish time
     append_rss_item(title, post_url, story_html, img_abs_url, img_mime)
 
-    # Optional trimming of RSS feed
-    if MAX_FEED_POSTS > 0:
-        trim_feed(FEED, MAX_FEED_POSTS)
-
     # GitHub Actions summary + console notice
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
