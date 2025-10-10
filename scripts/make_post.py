@@ -356,19 +356,24 @@ def main():
     ensure_feed()
     title, story_html, image_prompt = get_story_and_prompt()
 
-    timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
+    # Randomized UTC time for the day (between RANDOM_HOUR_START and RANDOM_HOUR_END)
+    pub_dt = utcnow_randomized_today()
+    timestamp = pub_dt.strftime("%Y%m%d-%H%M%S")
     slug = f"{slugify(title)}-{timestamp}"
 
+    # --- Generate image ---
     img_bytes, img_ext = generate_image(image_prompt)
+    print({"image_ext": img_ext})
     img_name = f"{timestamp}.{img_ext}"
     (IMGS / img_name).write_bytes(img_bytes)
 
-    # --- URL handling ---
-    rel_img_url = f"../images/{img_name}"  # works for project pages
-    base = PUBLIC_BASE_URL or "https://anjaleeds.github.io/story-feed"
+    # --- Build URLs ---
+    rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"   # served by GH Pages
+    base = PUBLIC_BASE_URL
     img_abs_url = f"{base}/images/{img_name}"
     post_url = f"{base}/posts/{slug}.html"
 
+    # MIME for enclosure
     img_mime = {
         "png": "image/png",
         "jpg": "image/jpeg",
@@ -377,7 +382,7 @@ def main():
         "svg": "image/svg+xml",
     }.get(img_ext.lower(), "image/png")
 
-    # --- Pretty HTML page with sticky topbar + Close button ---
+    # --- Create HTML post ---
     home_url = base
     pretty_html = f"""<!doctype html>
 <html lang="en">
@@ -411,6 +416,7 @@ def main():
     html, body {{
       margin: 0; background: var(--bg); color: var(--fg);
       font: 16px/1.65 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+      text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
     }}
     .topbar {{
       position: sticky; top: 0; z-index: 3;
@@ -424,36 +430,57 @@ def main():
     }}
     .title {{
       font-size: clamp(1.1rem, 2.2vw, 1.5rem); font-weight: 640; margin: 0;
+      letter-spacing: .2px;
     }}
     .close {{
       appearance: none; border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
       background: color-mix(in oklab, var(--card) 70%, transparent);
       color: var(--fg); padding: 8px 12px; border-radius: 999px; cursor: pointer;
-      font-weight: 600; transition: .15s ease;
+      font-weight: 600; transition: .15s ease; box-shadow: 0 0 0 0 var(--ring);
     }}
+    .close:hover {{ transform: translateY(-1px); border-color: color-mix(in oklab, var(--fg) 22%, transparent); }}
+    .close:focus-visible {{ outline: none; box-shadow: 0 0 0 6px var(--ring); }}
     .wrap {{ max-width: var(--maxw); margin: 24px auto 60px auto; padding: 0 16px; }}
     figure {{
-      margin: 0 0 18px 0; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+      margin: 0 0 18px 0; display:block;
+      background: color-mix(in oklab, var(--fg) 4%, transparent);
+      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
     }}
-    img.post {{ width: 100%; height: auto; display:block; object-fit: cover; }}
+    img.post {{
+      width: 100%; height: auto; display:block; object-fit: cover;
+    }}
     article {{ font-size: 1.05rem; }}
+    article h2 {{ font-size: 1.6rem; line-height:1.25; margin: 12px 0 8px 0; }}
+    article p {{ margin: 0 0 12px 0; }}
     footer.note {{
       margin-top: 28px; color: var(--muted); font-size: .95rem; text-align:center;
     }}
+    a.home {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
+    a.home:hover {{ text-decoration: underline; }}
   </style>
 </head>
 <body>
   <div class="topbar">
     <div class="topwrap">
       <h1 class="title">{title}</h1>
-      <button class="close" onclick="smartClose()">Close ✕</button>
+      <button class="close" onclick="smartClose()" aria-label="Close this story">Close ✕</button>
     </div>
   </div>
+
   <main class="wrap">
-    <figure><img class="post" src="{rel_img_url}" alt="illustration for {title}"></figure>
-    <article>{story_html}</article>
-   
+    <figure>
+      <img class="post" src="{rel_img_url}" alt="illustration for {title}">
+    </figure>
+
+    <article>
+      {story_html}
+    </article>
+
+    <footer class="note">
+      <a class="home" href="{home_url}">← Back to all stories</a>
+    </footer>
   </main>
+
   <script>
     function smartClose() {{
       if (window.opener && !window.opener.closed) {{ window.close(); return; }}
@@ -465,20 +492,29 @@ def main():
 </body>
 </html>"""
 
+    # Write post HTML
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(pretty_html, encoding="utf-8")
-    <footer class="note"><a href="https://www.data-driven-coaching.com/playground/really-short-stories">← Back to all stories</a></footer>
+
+    # Append to RSS with random publish time
     append_rss_item(title, post_url, story_html, img_abs_url, img_mime)
 
-    # GitHub Actions summary output
+    # Optional trimming of RSS feed
+    if MAX_FEED_POSTS > 0:
+        trim_feed(FEED, MAX_FEED_POSTS)
+
+    # GitHub Actions summary + console notice
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write("## ✅ New post published\n")
             f.write(f"- **Title:** {title}\n")
             f.write(f"- **URL:** {post_url}\n")
-            f.write(f"- **Image:** {img_abs_url}\n\n")
+            f.write(f"- **Image:** {img_abs_url}\n")
+            f.write(f"- **Image file:** {img_name}\n\n")
+
     print(f"::notice title=New post::{post_url}")
+
 
 if __name__ == "__main__":
     main()
