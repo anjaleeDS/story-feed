@@ -11,9 +11,9 @@ import xml.etree.ElementTree as ET
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 MODEL = os.environ.get("MODEL", "o4-mini")
 IMG_MODEL = os.environ.get("IMG_MODEL", "dall-e-2")
-TOPIC = os.environ.get("POST_TOPIC", "a two sentence horror story")
-MIN_WORDS = int(os.environ.get("POST_MIN_WORDS", "450"))
-MAX_WORDS = int(os.environ.get("POST_MAX_WORDS", "650"))
+TOPIC = os.environ.get("POST_TOPIC", "a horror story in two sentences")
+MIN_WORDS = int(os.environ.get("POST_MIN_WORDS", "10"))
+MAX_WORDS = int(os.environ.get("POST_MAX_WORDS", "55"))
 IMG_SIZE = os.environ.get("IMG_SIZE", "1024x1024")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://anjaleeDS.github.io/story-feed")
 
