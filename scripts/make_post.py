@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 MODEL = os.environ.get("MODEL", "o4-mini")
 IMG_MODEL = os.environ.get("IMG_MODEL", "dall-e-2")
-TOPIC = os.environ.get("POST_TOPIC", "an uplifting micro-story about clarity on a foggy ocean run")
+TOPIC = os.environ.get("POST_TOPIC", "a two sentence horror story")
 MIN_WORDS = int(os.environ.get("POST_MIN_WORDS", "450"))
 MAX_WORDS = int(os.environ.get("POST_MAX_WORDS", "650"))
 IMG_SIZE = os.environ.get("IMG_SIZE", "1024x1024")
@@ -54,7 +54,7 @@ def get_story_and_prompt():
     system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
     user = (
         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
-        f"Topic: {TOPIC}. Tone: warm, grounded, visual. "
+        f"Topic: {TOPIC}. Tone: warm, scary, hypervisual. "
         "Also produce a single-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
         "and a short natural language title. "
         "Return a JSON object with keys: title, story_html, image_prompt — nothing else."
