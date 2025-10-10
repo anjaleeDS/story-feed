@@ -21,7 +21,9 @@ env:
   MAX_FEED_POSTS: 99
   POST_MIN_WORDS: "10"
   POST_MAX_WORDS: "55"
-  IMG_SIZE: 1024x1024
+  RANDOM_HOUR_START: "3"
+  RANDOM_HOUR_END: "22"
+  IMG_SIZE: 512x512
   # Tip: set PUBLIC_BASE_URL as a repo Variable to your Pages URL, e.g. https://anjaleeds.github.io/story-feed
   PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
 
