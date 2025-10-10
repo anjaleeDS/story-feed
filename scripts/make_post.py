@@ -49,6 +49,19 @@ IMGS.mkdir(parents=True, exist_ok=True)
 def utcnow():
     return datetime.datetime.utcnow()
 
+def utcnow_randomized_today():
+    """
+    Return today's date in UTC with a random time between RANDOM_HOUR_START and RANDOM_HOUR_END inclusive.
+    """
+    now = utcnow()
+    start = max(0, min(23, RANDOM_HOUR_START))
+    end   = max(start, min(23, RANDOM_HOUR_END))
+    hour = random.randint(start, end)
+    minute = random.randint(0, 59)
+    second = random.randint(0, 59)
+    return now.replace(hour=hour, minute=minute, second=second, microsecond=0)
+
+
 def slugify(s: str) -> str:
     s = re.sub(r"[^A-Za-z0-9 -]", "", s).strip().lower()
     s = re.sub(r"\s+", "-", s)
