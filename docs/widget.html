@@ -65,7 +65,7 @@
   // ---- Config (defaults tailored to your ask) -------------------------------
   const params  = new URLSearchParams(location.search);
   const FEED_URL = params.get('feed') || 'https://anjaleeds.github.io/story-feed/feed.xml';
-  const COUNT    = Math.max(1, Math.min(24, parseInt(params.get('count') || '8', 10)));  // default 8
+  const COUNT    = Math.max(1, Math.min(24, parseInt(params.get('count') || '99', 10)));  // default 8
   const THEME    = (params.get('theme') || 'dark').toLowerCase();                        // default dark
   document.documentElement.setAttribute('data-theme', THEME);
 
