@@ -358,7 +358,7 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     enc.set("type", img_mime)
   
     # Trim to most recent N posts
-    MAX_POSTS = int(os.environ.get("MAX_FEED_POSTS", "99"))  # 👈 configurable limit
+    MAX_POSTS = int(os.environ.get("MAX_FEED_POSTS", "0"))  # 👈 configurable limit
     items = chan.findall("item")
     if len(items) > MAX_POSTS:
         for old_item in items[:-MAX_POSTS]:
