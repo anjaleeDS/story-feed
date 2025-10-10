@@ -49,6 +49,8 @@ def ensure_feed():
         '</channel></rss>',
         encoding="utf-8"
     )
+    
+# ----------------------- OpenAI: Story JSON ----------------------------------
 
 def get_story_and_prompt():
     system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
@@ -125,6 +127,8 @@ def get_story_and_prompt():
                     pass
 
     raise RuntimeError(f"Missing keys in JSON response: {json.dumps(data)[:800]}")
+    
+# --------------------- OpenAI: Image Generation (strict) ----------------------
 
 def generate_image(prompt: str):
     """
@@ -141,6 +145,7 @@ def generate_image(prompt: str):
         raise RuntimeError(f"Images API error {r.status_code}: {r.text[:800]}")
     b64 = r.json()["data"][0]["b64_json"]
     return base64.b64decode(b64), "png"
+# ---------------------------- RSS Update -------------------------------------
 
 def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str):
     xml = FEED.read_text(encoding="utf-8")
@@ -161,53 +166,162 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     desc = ET.SubElement(item, "description")
     desc.text = f"<![CDATA[{story_html}<p><img src='{img_abs_url}' alt='illustration'/></p>]]>"
     FEED.write_bytes(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+# ------------------------------ Main -----------------------------------------
 
 def main():
     ensure_feed()
     title, story_html, image_prompt = get_story_and_prompt()
 
-    # --- Generate filenames and slugs ---
     timestamp = utcnow().strftime("%Y%m%d-%H%M%S")
-    slug = f"{slugify(title) or 'story'}-{timestamp}"
+    slug = f"{slugify(title)}-{timestamp}"
 
-    # --- Generate and save image ---
+    # Image
     img_bytes, img_ext = generate_image(image_prompt)
+    print({"image_ext": img_ext})
     img_name = f"{timestamp}.{img_ext}"
     (IMGS / img_name).write_bytes(img_bytes)
 
-    # --- Prepare image paths ---
-    # For HTML: relative path (GitHub Pages serves posts under /story-feed/posts/)
-    html_img_src = f"../images/{img_name}"
+    # Paths/URLs
+    rel_img_url = f"/{IMGS.relative_to(DOCS)}/{img_name}"   # served by GH Pages
+    base = PUBLIC_BASE_URL or "https://<your-user>.github.io/<your-repo>"
+    img_abs_url = f"{base}/images/{img_name}"
+    post_url = f"{base}/posts/{slug}.html"
 
-    # For RSS: absolute URL
-    img_abs_url = f"{PUBLIC_BASE_URL}/images/{img_name}"
+    # MIME for enclosure
+    img_mime = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "webp": "image/webp",
+        "svg": "image/svg+xml",
+    }.get(img_ext.lower(), "image/png")
 
-    # --- Build post HTML ---
-    post_html = (
-        f"<h2>{title}</h2>\n"
-        f"{story_html}\n"
-        f"<p><img src='{html_img_src}' alt='illustration'/></p>\n"
-    )
+    # Pretty HTML post with sticky top bar + Close button
+    home_url = base
+    pretty_html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <style>
+    :root {{
+      --bg: #0e0f11;
+      --fg: #f6f7fb;
+      --muted: #a5adba;
+      --card: #12151b;
+      --accent: #7aa2ff;
+      --ring: rgba(122,162,255,.35);
+      --maxw: 900px;
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }}
+    @media (prefers-color-scheme: light) {{
+      :root {{
+        --bg: #ffffff;
+        --fg: #121317;
+        --muted: #68707c;
+        --card: #f7f8fb;
+        --accent: #1a73e8;
+        --ring: rgba(26,115,232,.25);
+        --shadow: 0 12px 28px rgba(16,24,40,.12);
+      }}
+    }}
+    html, body {{
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 16px/1.65 system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+      text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased;
+    }}
+    .topbar {{
+      position: sticky; top: 0; z-index: 3;
+      backdrop-filter: blur(8px);
+      background: color-mix(in oklab, var(--bg) 85%, transparent);
+      border-bottom: 1px solid color-mix(in oklab, var(--fg) 15%, transparent);
+    }}
+    .topwrap {{
+      max-width: var(--maxw); margin: 0 auto; padding: 10px 16px;
+      display:flex; gap:12px; align-items:center; justify-content:space-between;
+    }}
+    .title {{
+      font-size: clamp(1.1rem, 2.2vw, 1.5rem); font-weight: 640; margin: 0;
+      letter-spacing: .2px;
+    }}
+    .close {{
+      appearance: none; border: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
+      background: color-mix(in oklab, var(--card) 70%, transparent);
+      color: var(--fg); padding: 8px 12px; border-radius: 999px; cursor: pointer;
+      font-weight: 600; transition: .15s ease; box-shadow: 0 0 0 0 var(--ring);
+    }}
+    .close:hover {{ transform: translateY(-1px); border-color: color-mix(in oklab, var(--fg) 22%, transparent); }}
+    .close:focus-visible {{ outline: none; box-shadow: 0 0 0 6px var(--ring); }}
+    .wrap {{ max-width: var(--maxw); margin: 24px auto 60px auto; padding: 0 16px; }}
+    figure {{
+      margin: 0 0 18px 0; display:block;
+      background: color-mix(in oklab, var(--fg) 4%, transparent);
+      border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow);
+    }}
+    img.post {{
+      width: 100%; height: auto; display:block; object-fit: cover;
+    }}
+    article {{ font-size: 1.05rem; }}
+    article h2 {{ font-size: 1.6rem; line-height:1.25; margin: 12px 0 8px 0; }}
+    article p {{ margin: 0 0 12px 0; }}
+    footer.note {{
+      margin-top: 28px; color: var(--muted); font-size: .95rem; text-align:center;
+    }}
+    a.home {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
+    a.home:hover {{ text-decoration: underline; }}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topwrap">
+      <h1 class="title">{title}</h1>
+      <button class="close" onclick="smartClose()" aria-label="Close this story">Close ✕</button>
+    </div>
+  </div>
+
+  <main class="wrap">
+    <figure>
+      <img class="post" src="{rel_img_url}" alt="illustration for {title}">
+    </figure>
+
+    <article>
+      {story_html}
+    </article>
+
+    <footer class="note">
+      <a class="home" href="{home_url}">← Back to all stories</a>
+    </footer>
+  </main>
+
+  <script>
+    function smartClose() {{
+      if (window.opener && !window.opener.closed) {{ window.close(); return; }}
+      if (document.referrer && history.length > 1) {{ history.back(); return; }}
+      window.location.href = "{home_url}";
+    }}
+    window.addEventListener('keydown', (e) => {{ if (e.key === 'Escape') smartClose(); }});
+  </script>
+</body>
+</html>"""
+
     post_path = POSTS / f"{slug}.html"
-    post_path.write_text(post_html, encoding="utf-8")
+    post_path.write_text(pretty_html, encoding="utf-8")
 
-    # --- Build URLs for RSS and logging ---
-    post_url = f"{PUBLIC_BASE_URL}/posts/{slug}.html"
+    # RSS
+    append_rss_item(title, post_url, story_html, img_abs_url, img_mime)
 
-    # --- Append to RSS feed ---
-    append_rss_item(title, post_url, story_html, img_abs_url)
-
-    # --- Print JSON log (useful for debugging in Actions) ---
-    print({"slug": slug, "post_url": post_url})
-
-    # --- GitHub Actions summary + notice ---
+    # Summary for GitHub Actions + console notice
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as f:
             f.write("## ✅ New post published\n")
             f.write(f"- **Title:** {title}\n")
-            f.write(f"- **URL:** {post_url}\n\n")
-
+            f.write(f"- **URL:** {post_url}\n")
+            f.write(f"- **Image:** {img_abs_url}\n")
+            f.write(f"- **Image file:** {img_name}\n\n")
     print(f"::notice title=New post::{post_url}")
+
 if __name__ == "__main__":
     main()
