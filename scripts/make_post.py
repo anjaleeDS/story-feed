@@ -335,6 +335,17 @@ def append_rss_item(title: str, post_url: str, story_html: str, img_abs_url: str
     enc = ET.SubElement(item, "enclosure")
     enc.set("url", img_abs_url)
     enc.set("type", img_mime)
+  
+    # Trim to most recent N posts
+    MAX_POSTS = int(os.environ.get("MAX_FEED_POSTS", "99"))  # 👈 configurable limit
+    items = chan.findall("item")
+    if len(items) > MAX_POSTS:
+        for old_item in items[:-MAX_POSTS]:
+            chan.remove(old_item)
+
+    # Save feed
+    new_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    FEED.write_bytes(new_xml)
 
     new_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     FEED.write_bytes(new_xml)
