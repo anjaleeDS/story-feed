@@ -49,14 +49,22 @@ IMGS.mkdir(parents=True, exist_ok=True)
 def utcnow():
     return datetime.datetime.utcnow()
 
+import os, random, datetime
+
 def utcnow_randomized_today():
     """
-    Return today's date in UTC with a random time between RANDOM_HOUR_START and RANDOM_HOUR_END inclusive.
+    Return today's UTC date with a random time between RANDOM_HOUR_START and RANDOM_HOUR_END (inclusive).
+    Defaults: 7..22 if env vars not set.
     """
-    now = utcnow()
-    start = max(0, min(23, RANDOM_HOUR_START))
-    end   = max(start, min(23, RANDOM_HOUR_END))
-    hour = random.randint(start, end)
+    now = datetime.datetime.utcnow()
+    start = int(os.environ.get("RANDOM_HOUR_START", "7"))
+    end   = int(os.environ.get("RANDOM_HOUR_END", "22"))
+
+    # clamp & order
+    start = max(0, min(23, start))
+    end   = max(start, min(23, end))
+
+    hour   = random.randint(start, end)
     minute = random.randint(0, 59)
     second = random.randint(0, 59)
     return now.replace(hour=hour, minute=minute, second=second, microsecond=0)
