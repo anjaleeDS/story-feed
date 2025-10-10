@@ -134,7 +134,7 @@ def generate_image(prompt: str):
     r = requests.post(
         "https://api.openai.com/v1/images/generations",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-        json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE},
+        json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE, "response_format": "b64_json"},
         timeout=180
     )
     if r.status_code != 200:
