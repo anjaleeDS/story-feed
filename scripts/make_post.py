@@ -467,7 +467,7 @@ def main():
 
     post_path = POSTS / f"{slug}.html"
     post_path.write_text(pretty_html, encoding="utf-8")
- <footer class="note"><a href="https://www.data-driven-coaching.com/playground/really-short-stories">← Back to all stories</a></footer>
+    <footer class="note"><a href="https://www.data-driven-coaching.com/playground/really-short-stories">← Back to all stories</a></footer>
     append_rss_item(title, post_url, story_html, img_abs_url, img_mime)
 
     # GitHub Actions summary output
