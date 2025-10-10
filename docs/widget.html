@@ -64,8 +64,17 @@
   <script>
   // ---- Config (defaults tailored to your ask) -------------------------------
   const params  = new URLSearchParams(location.search);
-  const FEED_URL = params.get('feed') || 'https://anjaleeds.github.io/story-feed/feed.xml';
-  const COUNT    = Math.max(1, Math.min(24, parseInt(params.get('count') || '99', 10)));  // default 8
+  const FEED_URL = "https://anjaleeds.github.io/story-feed/feed.xml";
+  const FEED_VER = "v=2"; // bump when you push updates
+  const feedUrl = FEED_URL + (FEED_URL.includes("?") ? "&" : "?") + FEED_VER;
+
+  fetch(feedUrl, { cache: "no-store" })
+    .then(r => r.text())
+    .then(xmlText => {
+      // existing parsing code below
+    });
+    
+  const COUNT    = Math.max(1, Math.min(24, parseInt(params.get('count') || '99', 10)));  
   const THEME    = (params.get('theme') || 'dark').toLowerCase();                        // default dark
   document.documentElement.setAttribute('data-theme', THEME);
 
