@@ -18,6 +18,7 @@ env:
   MODEL: gpt-5
   IMG_MODEL: dall-e-2
   POST_TOPIC: a horror story in three sentences
+  MAX_FEED_POSTS: 99
   POST_MIN_WORDS: "10"
   POST_MAX_WORDS: "55"
   IMG_SIZE: 1024x1024
