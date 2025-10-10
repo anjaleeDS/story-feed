@@ -1,91 +1,72 @@
-name: Generate story, image, and update RSS
+name: Make & Publish Story
 
 on:
-  workflow_dispatch:        # lets you run it manually
+  workflow_dispatch: {}
   schedule:
-    - cron: "0 15 * * *"    # runs daily at 3 PM UTC
+    # Run every day at 7:05 AM UTC (adjust as you like)
+    - cron: "5 7 * * *"
 
-# 👇 this gives your GitHub Actions bot permission to write to your repo
 permissions:
-  contents: write
+  contents: write   # allow the job to commit & push back to the repo
+
+concurrency:
+  group: make-publish
+  cancel-in-progress: false
+
+env:
+  # Defaults; you can override these using Repository "Variables" (Settings → Secrets and variables → Variables)
+  MODEL: o4-mini
+  IMG_MODEL: gpt-image-1
+  POST_TOPIC: a horror story in three sentences
+  POST_MIN_WORDS: "10"
+  POST_MAX_WORDS: "55"
+  IMG_SIZE: 1024x1024
+  # Tip: set PUBLIC_BASE_URL as a repo Variable to your Pages URL, e.g. https://anjaleeds.github.io/story-feed
+  PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      # 🧩 Step 1: Pull your repo files so we can work on them
       - name: Check out repo
+      # If you use a personal fork + protected branch, fetch-depth: 0 helps on some setups
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 🐍 Step 2: Install Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      # 📦 Step 3: Install your project’s requirements
       - name: Install deps
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install requests
 
-      # 🧠 Step 4: Check that your OpenAI key works and can make images
-      - name: Diagnose Images API access
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "::error:: OPENAI_API_KEY is not set or empty."
-            exit 1
-          fi
-
-          echo "=== 1) List models ==="
-          curl -sS -D /tmp/models.h \
-            -w '\nHTTP:%{http_code}\n' \
-            https://api.openai.com/v1/models \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -o /tmp/models.json || true
-          echo "--- headers ---"
-          sed -n '1,40p' /tmp/models.h
-          echo "--- body (first 800 chars) ---"
-          head -c 800 /tmp/models.json; echo
-          echo "--- status ---"
-          tail -n1 /tmp/models.json || true
-
-          echo
-          echo "=== 2) Test image generation ==="
-          curl -sS -D /tmp/images.h \
-            -w '\nHTTP:%{http_code}\n' \
-            https://api.openai.com/v1/images/generations \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"model":"gpt-image-1","prompt":"simple geometric pattern","size":"256x256"}' \
-            -o /tmp/images.json || true
-          echo "--- headers ---"
-          sed -n '1,40p' /tmp/images.h
-          echo "--- body (first 800 chars) ---"
-          head -c 800 /tmp/images.json; echo
-          echo "--- status ---"
-          tail -n1 /tmp/images.json || true
-
-      # ✍️ Step 5: Run your Python script that makes the story + image
       - name: Generate story, image, and update RSS
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python scripts/make_post.py
+          MODEL: ${{ env.MODEL }}
+          IMG_MODEL: ${{ env.IMG_MODEL }}
+          POST_TOPIC: ${{ env.POST_TOPIC }}
+          POST_MIN_WORDS: ${{ env.POST_MIN_WORDS }}
+          POST_MAX_WORDS: ${{ env.POST_MAX_WORDS }}
+          IMG_SIZE: ${{ env.IMG_SIZE }}
+          PUBLIC_BASE_URL: ${{ env.PUBLIC_BASE_URL }}
+        run: |
+          set -e
+          python scripts/make_post.py
 
-      # 💾 Step 6: Save the new files and push them to GitHub
       - name: Commit & push if changed
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add docs/posts docs/images docs/feed.xml || true
-          git commit -m "auto: new story $(date -u +'%Y-%m-%d %H:%M:%S')" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref_name }}
+          set -e
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "auto: new story $(date -u +'%Y-%m-%d %H:%M:%S')"
+            git push
+          else
+            echo "No changes to commit."
+          fi
