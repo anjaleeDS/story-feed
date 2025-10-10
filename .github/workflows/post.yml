@@ -15,8 +15,8 @@ concurrency:
 
 env:
   # Defaults; you can override these using Repository "Variables" (Settings → Secrets and variables → Variables)
-  MODEL: o4-mini
-  IMG_MODEL: gpt-image-1
+  MODEL: gpt-5
+  IMG_MODEL: dall-e-2
   POST_TOPIC: a horror story in three sentences
   POST_MIN_WORDS: "10"
   POST_MAX_WORDS: "55"
