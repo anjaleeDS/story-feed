@@ -132,7 +132,7 @@ def generate_image(prompt: str):
     Returns (image_bytes, ext) where ext is 'png'.
     """
     r = requests.post(
-        "https://api.openai.com/v1/images",
+        "https://api.openai.com/v1/images/generations",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         json={"model": IMG_MODEL, "prompt": prompt, "size": IMG_SIZE},
         timeout=180
