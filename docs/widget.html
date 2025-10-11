@@ -76,7 +76,7 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const FEED_URL = "https://anjaleeds.github.io/story-feed/feed.xml";
-    const FEED_VER = "v=23"; // bump when you push updates
+    const FEED_VER = "v=21"; // bump when you push updates
     const feedUrl  = FEED_URL + (FEED_URL.includes("?") ? "&" : "?") + FEED_VER;
     const COUNT    = Math.min(99, Number(params.get("count") || 8));
 
