@@ -20,15 +20,15 @@
       color: var(--fg);
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
       margin: 0;
-      padding: 16px;
+      padding: 24px 32px;
       display: grid;
-      gap: 16px;
+      gap: 24px;
       justify-content: center;
     }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 24px;
       max-width: 1300px;
       width: 100%;
     }
@@ -45,19 +45,19 @@
     }
     .thumb {
       width: 100%;
-      height: 150px;
+      height: 200px;
       object-fit: cover;
       display: block;
       background: #0f1216;
     }
-    .inner { padding: 12px 16px; }
+    .inner { padding: 16px 20px; }
     h2 {
-      font-size: 1rem;
-      margin: 0 0 6px 0;
+      font-size: 1.1rem;
+      margin: 0 0 8px 0;
       color: var(--accent);
     }
     p.desc {
-      font-size: .9rem;
+      font-size: .95rem;
       color: var(--muted);
       line-height: 1.4;
       margin: 0;
@@ -71,35 +71,59 @@
       0%{background-position:0% 0}
       100%{background-position:-200% 0}
     }
-    #loadMore:hover {
-      background: #6090e8;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(122, 162, 255, 0.3);
+    .pagination {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      align-items: center;
+      margin: 24px 0;
     }
-    #loadMore:active {
-      transform: translateY(0);
+    .pagination button {
+      background: var(--card);
+      color: var(--fg);
+      border: 1px solid #2a2f38;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s ease;
+    }
+    .pagination button:hover:not(:disabled) {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+    .pagination button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .pagination .page-info {
+      color: var(--muted);
+      font-size: .9rem;
+      padding: 0 12px;
     }
   </style>
 </head>
 <body>
   <div class="grid" id="grid"></div>
-  <div style="text-align: center; margin: 24px 0;">
-    <button id="loadMore" style="display: none; background: var(--accent); color: var(--bg); border: none; padding: 12px 32px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: all .2s ease;">
-      Load More Stories
-    </button>
+  <div class="pagination" id="pagination" style="display: none;">
+    <button id="prevBtn">← Previous</button>
+    <span class="page-info" id="pageInfo"></span>
+    <button id="nextBtn">Next →</button>
   </div>
 
   <script>
     const params = new URLSearchParams(window.location.search);
     const FEED_URL = "https://anjaleeds.github.io/story-feed/feed.xml";
-    const FEED_VER = "v=32"; // bump when updating
+    const FEED_VER = "v=32";
     const feedUrl  = FEED_URL + (FEED_URL.includes("?") ? "&" : "?") + FEED_VER;
-    const INITIAL_COUNT = 8;
-    const LOAD_MORE_COUNT = 4;
+    const POSTS_PER_PAGE = 8;
     const FEED_BASE = "https://anjaleeds.github.io/story-feed/";
     
     let allItems = [];
-    let displayedCount = 0;
+    let currentPage = 1;
+    let totalPages = 1;
 
     const absolutize = (url, base) => new URL(url, base).href;
 
@@ -130,10 +154,15 @@
       attempt();
     }
 
-    function renderItems(items) {
+    function renderPage(page) {
       const grid = document.getElementById("grid");
+      grid.innerHTML = "";
       
-      for (const item of items) {
+      const startIdx = (page - 1) * POSTS_PER_PAGE;
+      const endIdx = startIdx + POSTS_PER_PAGE;
+      const pageItems = allItems.slice(startIdx, endIdx);
+
+      for (const item of pageItems) {
         const rawLink = item.querySelector("link")?.textContent || "#";
         const link = fixPostLink(rawLink);
         const desc = item.querySelector("description")?.textContent || "";
@@ -167,23 +196,28 @@
         }
       }
       
+      updatePagination();
       postSize();
     }
 
-    function loadMoreItems() {
-      const itemsToShow = allItems.slice(displayedCount, displayedCount + LOAD_MORE_COUNT);
-      renderItems(itemsToShow);
-      displayedCount += itemsToShow.length;
+    function updatePagination() {
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const pageInfo = document.getElementById("pageInfo");
       
-      const loadMoreBtn = document.getElementById("loadMore");
-      if (displayedCount >= allItems.length) {
-        loadMoreBtn.style.display = "none";
-      }
-      
-      postSize();
+      prevBtn.disabled = currentPage === 1;
+      nextBtn.disabled = currentPage === totalPages;
+      pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
     }
 
-    // Fetch and render
+    function goToPage(page) {
+      if (page < 1 || page > totalPages) return;
+      currentPage = page;
+      renderPage(currentPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Fetch and initialize
     fetch(feedUrl, { cache: "no-store" })
       .then(r => r.text())
       .then(xmlText => {
@@ -191,17 +225,15 @@
         const xml = parser.parseFromString(xmlText, "application/xml");
         allItems = Array.from(xml.querySelectorAll("item")).reverse();
         
-        // Show initial posts
-        const initialItems = allItems.slice(0, INITIAL_COUNT);
-        renderItems(initialItems);
-        displayedCount = initialItems.length;
+        totalPages = Math.ceil(allItems.length / POSTS_PER_PAGE);
         
-        // Show load more button if there are more items
-        const loadMoreBtn = document.getElementById("loadMore");
-        if (allItems.length > INITIAL_COUNT) {
-          loadMoreBtn.style.display = "inline-block";
-          loadMoreBtn.addEventListener("click", loadMoreItems);
+        if (totalPages > 1) {
+          document.getElementById("pagination").style.display = "flex";
+          document.getElementById("prevBtn").addEventListener("click", () => goToPage(currentPage - 1));
+          document.getElementById("nextBtn").addEventListener("click", () => goToPage(currentPage + 1));
         }
+        
+        renderPage(1);
       })
       .catch(err => {
         console.error("Feed load error:", err);
