@@ -99,7 +99,7 @@ def get_story_and_prompt():
     system = "You are a concise literary editor and illustration prompt-writer. Return strictly valid JSON."
     user = (
         f"Write a {MIN_WORDS}-{MAX_WORDS} word story in clean HTML using only <h2>, <p>, <em>. "
-        f"Topic: {TOPIC}. Tone: vivid, eerie, cinematic. "
+        f"Topic: {TOPIC}. Tone: vivid, eerie, cinematic, blanketed with cartoony feel. "
         "Also produce a one-sentence illustration prompt (no camera brands; include subject, mood, composition, light) "
         "and a short natural-language title. Return only a JSON object with keys: title, story_html, image_prompt."
     )
