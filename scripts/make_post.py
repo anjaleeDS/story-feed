@@ -490,7 +490,7 @@ def main():
 
   <main class="wrap">
     <figure>
-      <img class="post" src="{rel_img_url}" alt="illustration for {title}">
+      <img class="post" src="{img_abs_url}" alt="illustration for {title}">
     </figure>
 
     <article>
