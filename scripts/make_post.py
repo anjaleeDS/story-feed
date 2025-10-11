@@ -484,7 +484,8 @@ def main():
   <div class="topbar">
     <div class="topwrap">
       <h1 class="title">{title}</h1>
-      <button class="close" onclick="smartBack()" aria-label="Back to feed">← Back</button>
+      # <button class="close" onclick="smartBack()" aria-label="Back to feed">← Back</button>
+      <a href="https://www.data-driven-coaching.com/playground/really-short-stories" class="back-btn">← Back to Stories</a>
     </div>
   </div>
 
