@@ -14,18 +14,27 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Pull from repo “Variables”; fall back to sane defaults if a variable is missing
+  MODEL:           ${{ vars.MODEL || 'gpt-5' }}
+  IMG_MODEL:       ${{ vars.IMG_MODEL || 'dall-e-2' }}
+  POST_TOPIC:      ${{ vars.POST_TOPIC || 'a horror story in three sentences' }}
+  POST_MIN_WORDS:  ${{ vars.POST_MIN_WORDS || '10' }}
+  POST_MAX_WORDS:  ${{ vars.POST_MAX_WORDS || '55' }}
+  IMG_SIZE:        ${{ vars.IMG_SIZE || '512x512' }}
+  PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'https://anjaleeds.github.io/story-feed' }}
+  
   # Defaults; you can override these using Repository "Variables" (Settings → Secrets and variables → Variables)
-  MODEL: gpt-5
-  IMG_MODEL: dall-e-2
-  POST_TOPIC: a horror story in three sentences
-  MAX_FEED_POSTS: 99
-  POST_MIN_WORDS: "10"
-  POST_MAX_WORDS: "55"
-  RANDOM_HOUR_START: "7"
-  RANDOM_HOUR_END: "22"
-  IMG_SIZE: 512x512
-  # Tip: set PUBLIC_BASE_URL as a repo Variable to your Pages URL, e.g. https://anjaleeds.github.io/story-feed
-  PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+  # MODEL: gpt-5
+  # IMG_MODEL: dall-e-2
+  # POST_TOPIC: a horror story in three sentences
+  # MAX_FEED_POSTS: 99
+  # POST_MIN_WORDS: "10"
+  # POST_MAX_WORDS: "55"
+  # RANDOM_HOUR_START: "7"
+  # RANDOM_HOUR_END: "22"
+  # IMG_SIZE: 512x512
+  # # Tip: set PUBLIC_BASE_URL as a repo Variable to your Pages URL, e.g. https://anjaleeds.github.io/story-feed
+  # PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
 
 jobs:
   build:
