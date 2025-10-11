@@ -137,7 +137,7 @@
           }
           if (img) img = absolutize(img, FEED_BASE);
 
-          const safeText = desc.replace(/<[^>]+>/g, "").trim().slice(0, 160);
+          const safeText = desc.replace(/<[^>]+>/g, "").trim().slice(0, 80);
           const card = document.createElement("article");
           card.innerHTML = `
             ${img ? `<a href="${link}" target="_blank" rel="noopener">
@@ -145,7 +145,7 @@
             </a>` : ""}
             <div class="inner">
               <h2><a href="${link}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">${title}</a></h2>
-              <p class="desc">${safeText}${safeText.length === 160 ? "…" : ""}</p>
+              <p class="desc">${safeText}${safeText.length === 80 ? "…" : ""}</p>
             </div>
           `;
           grid.appendChild(card);
