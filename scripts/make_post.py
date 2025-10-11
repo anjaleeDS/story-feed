@@ -498,7 +498,7 @@ def main():
     </article>
 
     <footer class="note">
-      <a class="home" href="{home_url}">← Back to all stories</a>
+      <a class="home" href="https://www.data-driven-coaching.com/playground/really-short-stories">← Back to all stories</a>
     </footer>
   </main>
 
