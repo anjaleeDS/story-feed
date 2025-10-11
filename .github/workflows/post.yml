@@ -7,41 +7,30 @@ on:
     - cron: "5 7 * * *"
 
 permissions:
-  contents: write   # allow the job to commit & push back to the repo
+  contents: write
 
 concurrency:
   group: make-publish
   cancel-in-progress: false
 
+# ✅ Make vars available to ALL steps, with sane defaults
 env:
-  # Pull from repo “Variables”; fall back to sane defaults if a variable is missing
-  MODEL:           ${{ vars.MODEL || 'gpt-5' }}
-  IMG_MODEL:       ${{ vars.IMG_MODEL || 'dall-e-2' }}
-  POST_TOPIC:      ${{ vars.POST_TOPIC || 'a horror story in three sentences' }}
-  POST_MIN_WORDS:  ${{ vars.POST_MIN_WORDS || '10' }}
-  POST_MAX_WORDS:  ${{ vars.POST_MAX_WORDS || '55' }}
-  IMG_SIZE:        ${{ vars.IMG_SIZE || '512x512' }}
+  MODEL:           ${{ vars.MODEL           || 'gpt-5' }}
+  IMG_MODEL:       ${{ vars.IMG_MODEL       || 'dall-e-2' }}
+  POST_TOPIC:      ${{ vars.POST_TOPIC      || 'a horror story in three sentences' }}
+  POST_MIN_WORDS:  ${{ vars.POST_MIN_WORDS  || '10' }}
+  POST_MAX_WORDS:  ${{ vars.POST_MAX_WORDS  || '55' }}
+  IMG_SIZE:        ${{ vars.IMG_SIZE        || '512x512' }}
   PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL || 'https://anjaleeds.github.io/story-feed' }}
-  
-  # Defaults; you can override these using Repository "Variables" (Settings → Secrets and variables → Variables)
-  # MODEL: gpt-5
-  # IMG_MODEL: dall-e-2
-  # POST_TOPIC: a horror story in three sentences
-  # MAX_FEED_POSTS: 99
-  # POST_MIN_WORDS: "10"
-  # POST_MAX_WORDS: "55"
-  # RANDOM_HOUR_START: "7"
-  # RANDOM_HOUR_END: "22"
-  # IMG_SIZE: 512x512
-  # # Tip: set PUBLIC_BASE_URL as a repo Variable to your Pages URL, e.g. https://anjaleeds.github.io/story-feed
-  # PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # If you stored variables under an Environment instead of repo-level Variables, uncomment:
+    # environment: prod
+
     steps:
       - name: Check out repo
-      # If you use a personal fork + protected branch, fetch-depth: 0 helps on some setups
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -55,30 +44,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install requests
- # 🩵 Add this Debug Step BEFORE running your Python script
+
+      # 🔎 Debug what this job actually sees (inherits workflow-level env)
       - name: Debug environment variables
         run: |
           echo "MODEL=$MODEL"
           echo "IMG_MODEL=$IMG_MODEL"
           echo "PUBLIC_BASE_URL=$PUBLIC_BASE_URL"
           echo "POST_TOPIC=$POST_TOPIC"
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MODEL: ${{ vars.MODEL }}
-          IMG_MODEL: ${{ vars.IMG_MODEL }}
-          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
-          POST_TOPIC: ${{ vars.POST_TOPIC }}
- 
+
       - name: Generate story, image, and update RSS
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          MODEL: ${{ env.MODEL }}
-          IMG_MODEL: ${{ env.IMG_MODEL }}
-          POST_TOPIC: ${{ env.POST_TOPIC }}
-          POST_MIN_WORDS: ${{ env.POST_MIN_WORDS }}
-          POST_MAX_WORDS: ${{ env.POST_MAX_WORDS }}
-          IMG_SIZE: ${{ env.IMG_SIZE }}
-          PUBLIC_BASE_URL: ${{ env.PUBLIC_BASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # secret only
         run: |
           set -e
           python scripts/make_post.py
