@@ -67,7 +67,10 @@
       background: linear-gradient(90deg, #121519, #151a20, #121519);
       background-size: 200% 100%;
     }
-    @keyframes pulse { 0%{background-position:0% 0} 100%{background-position: -200% 0} }
+    @keyframes pulse {
+      0%{background-position:0% 0}
+      100%{background-position:-200% 0}
+    }
   </style>
 </head>
 <body>
@@ -76,14 +79,22 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const FEED_URL = "https://anjaleeds.github.io/story-feed/feed.xml";
-    const FEED_VER = "v=21"; // bump when you push updates
+    const FEED_VER = "v=32"; // bump when updating
     const feedUrl  = FEED_URL + (FEED_URL.includes("?") ? "&" : "?") + FEED_VER;
     const COUNT    = Math.min(99, Number(params.get("count") || 8));
+    const FEED_BASE = "https://anjaleeds.github.io/story-feed/";
 
-    // helper
     const absolutize = (url, base) => new URL(url, base).href;
 
-    // load image with retry + cache-busting
+    function fixPostLink(url) {
+      if (!url) return "#";
+      const u = new URL(url, FEED_BASE);
+      if (u.pathname.startsWith("/posts/")) {
+        u.pathname = "/story-feed" + u.pathname;
+      }
+      return u.href;
+    }
+
     function loadImageWithRetry(imgEl, baseUrl, maxTries = 5) {
       let tries = 0;
       function attempt() {
@@ -97,38 +108,37 @@
           setTimeout(attempt, backoff);
         } else {
           console.warn("Image failed after retries:", baseUrl);
-          // leave skeleton background; could also hide the image
         }
-      }, { once: false });
+      });
       attempt();
     }
 
+    // Fetch and render
     fetch(feedUrl, { cache: "no-store" })
       .then(r => r.text())
       .then(xmlText => {
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlText, "application/xml");
         const allItems = Array.from(xml.querySelectorAll("item"));
-        // newest first
         const items = allItems.slice(-COUNT).reverse();
         const grid = document.getElementById("grid");
 
         for (const item of items) {
+          const rawLink = item.querySelector("link")?.textContent || "#";
+          const link = fixPostLink(rawLink);
+          const desc = item.querySelector("description")?.textContent || "";
           const title = item.querySelector("title")?.textContent || "Untitled";
-          const link  = item.querySelector("link")?.textContent || "#";
-          const desc  = item.querySelector("description")?.textContent || "";
 
-          // Prefer enclosure
           const enc = item.querySelector("enclosure");
           let img = enc?.getAttribute("url") || null;
           if (!img) {
             const m = desc.match(/<img[^>]+src=['"]([^'"]+)['"]/i);
             if (m) img = m[1];
           }
-          if (img) img = absolutize(img, FEED_URL);
+          if (img) img = absolutize(img, FEED_BASE);
 
-          const card = document.createElement("article");
           const safeText = desc.replace(/<[^>]+>/g, "").trim().slice(0, 160);
+          const card = document.createElement("article");
           card.innerHTML = `
             ${img ? `<a href="${link}" target="_blank" rel="noopener">
               <img class="thumb skeleton" alt="${title}">
@@ -140,7 +150,6 @@
           `;
           grid.appendChild(card);
 
-          // start image loading with retry if we have one
           if (img) {
             const imgEl = card.querySelector(".thumb");
             loadImageWithRetry(imgEl, img);
@@ -148,18 +157,50 @@
           }
         }
 
-        // tell parent to resize
-        requestAnimationFrame(() => {
-          const height = document.body.scrollHeight;
-          window.parent.postMessage({ type: "widget-size", height }, "*");
-        });
+        postSize();
       })
       .catch(err => {
         console.error("Feed load error:", err);
-        // still try to resize so the iframe doesn't clip
-        const height = document.body.scrollHeight;
-        window.parent.postMessage({ type: "widget-size", height }, "*");
+        postSize();
       });
+
+    // --- Auto resize ---
+    function measureHeight() {
+      const b = document.body;
+      const d = document.documentElement;
+      return Math.max(
+        b.scrollHeight, b.offsetHeight, b.clientHeight,
+        d ? d.scrollHeight : 0, d ? d.offsetHeight : 0, d ? d.clientHeight : 0
+      );
+    }
+
+    let lastH = 0, rafId = null;
+    function postSize() {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const h = measureHeight();
+        if (h !== lastH) {
+          lastH = h;
+          window.parent.postMessage({ type: "widget-size", height: h }, "*");
+        }
+      });
+    }
+
+    window.addEventListener("load", postSize);
+    window.addEventListener("resize", postSize);
+
+    const ro = new ResizeObserver(postSize);
+    ro.observe(document.body);
+
+    const mo = new MutationObserver(postSize);
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+
+    for (const img of document.images) {
+      if (!img.complete) img.addEventListener("load", postSize, { once: true });
+    }
+
+    setTimeout(postSize, 0);
   </script>
 </body>
 </html>
