@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#g)"/>
+  <g transform="translate(56,80)">
+    <text x="0" y="0" font-family="Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="42" font-weight="700" fill="#e5e7eb">
+      Auto Illustration
+    </text>
+    <foreignObject x="0" y="28" width="1168" height="600">
+      <div xmlns="http://www.w3.org/1999/xhtml"
+           style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; font-size: 24px; line-height: 1.45; color:#cbd5e1;">
+        A stalled, mirror-lined elevator between floors with a lone figure whose reflection breathes on its own, vivid eerie cinematic mood, central symmetrical composition, low blood-red …
+      </div>
+    </foreignObject>
+  </g>
+</svg>
